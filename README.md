@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gỡ Rối Tâm
 
-## Getting Started
+Web app: cộng đồng chia sẻ (có ẩn danh) + AI trả lời theo giáo lý Phật giáo Đại thừa + lịch tu tập.
+Next.js 15 (App Router) · TypeScript · Tailwind v4 · Supabase (Postgres, Auth, RLS). Không dùng dịch vụ trả phí.
 
-First, run the development server:
+## Chạy local
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. `npm install`
+2. Tạo project Supabase (Free). Vào **SQL Editor**, chạy toàn bộ `supabase/migrations/0001_schema.sql`.
+3. Auth → Providers → Email: bật. Để thử nhanh, có thể tắt "Confirm email".
+4. `cp .env.example .env.local` rồi điền `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API) và `GUEST_HASH_SALT` (chuỗi ngẫu nhiên).
+5. `npm run dev` → http://localhost:3000
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`SUPABASE_SERVICE_ROLE_KEY` chỉ dùng phía server, không bao giờ đặt tiền tố `NEXT_PUBLIC_`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## AI provider (đổi được bằng env)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| `LLM_PROVIDER` | Dùng khi |
+|---|---|
+| `mock` (mặc định) | Phát triển, không cần key |
+| `openai-compatible` | Bất kỳ endpoint `POST {LLM_BASE_URL}/chat/completions`: Ollama local (`http://localhost:11434/v1`) hoặc dịch vụ có free tier. Đặt `LLM_MODEL`, `LLM_API_KEY` (nếu cần) |
 
-## Learn More
+Thêm provider mới: implement `LLMProvider` trong `src/lib/llm/types.ts`, đăng ký ở `src/lib/llm/index.ts`.
+Kiểm tra giới hạn free tier trong tài liệu chính thức của nhà cung cấp bạn chọn.
 
-To learn more about Next.js, take a look at the following resources:
+## Tạo admin
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Đăng ký tài khoản, chọn biệt danh, rồi trong SQL Editor:
+`update public.profiles set role = 'admin' where nickname = '<biệt danh>';`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Việc bạn cần làm trước khi ra công khai
 
-## Deploy on Vercel
+- Nạp văn bản kinh điển Đại thừa **đã xác minh** vào `teaching_sources` / `teaching_chunks` (đặt `verified = true`). Dữ liệu seed hiện chỉ là tóm tắt khái niệm mẫu, không phải trích dẫn kinh.
+- Điền `CRISIS_HELP_TEXT` bằng đường dây hỗ trợ bạn đã kiểm chứng.
+- Rà soát pháp lý trang Quyền riêng tư / Điều khoản (đang là bản nháp).
+- Đặt `LLM_PROVIDER` thật và kiểm thử chất lượng trả lời tiếng Việt.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Kiến trúc
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/modules/{auth,community,ai,practice,admin}`: nghiệp vụ theo module (actions, logic thuần có test).
+- Quota (2 AI + 2 bài/ngày gói Free) kiểm tra nguyên tử trong Postgres (`consume_quota`, `create_post`); khách dùng `consume_guest_quota` (khóa theo cookie và IP đã băm).
+- Bài ẩn danh đọc qua view `public_posts` không trả `author_id`/biệt danh.
+- Trích dẫn nguồn do server dựng từ đoạn tài liệu đã truy xuất, không lấy từ model.
+
+## Lệnh
+
+`npm run dev` · `npm run build` · `npm run lint` · `npm run typecheck` · `npm test`
