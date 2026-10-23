@@ -38,6 +38,10 @@ export const emailTokens = pgTable("email_tokens", {
   purpose: text("purpose", { enum: ["verify", "reset"] }).notNull(),
   expiresAt: tz("expires_at").notNull(),
   usedAt: tz("used_at"),
+  // Signup only: the password chosen in THIS signup, applied on verification only when the link is
+  // opened in the same browser (nonce cookie). Stops anyone pre-registering someone else's email.
+  passwordHash: text("password_hash"),
+  nonceHash: text("nonce_hash"),
 });
 
 export const rateLimits = pgTable("rate_limits", {

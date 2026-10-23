@@ -36,12 +36,28 @@ Thêm email vào `ADMIN_EMAILS` (cách nhau bằng dấu phẩy). Tài khoản �
 Đăng ký → email xác nhận → bấm liên kết (`/xac-nhan-email`) → chọn biệt danh → dùng app.
 Quên mật khẩu → email → `/dat-lai-mat-khau` → mật khẩu mới (đăng xuất mọi thiết bị khác).
 
+## Triển khai production (bắt buộc cho bảo mật)
+- Đặt `NEXT_PUBLIC_SITE_URL=https://ten-mien-cua-ban`. Thiếu biến này app từ chối tạo link email (chống giả mạo Host header).
+- Chạy sau **một** reverse proxy (Nginx/Caddy) có HTTPS, và để proxy **ghi đè/nối** IP thật, ví dụ Nginx:
+  ```nginx
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header Host $host;
+  ```
+  Giữ `TRUSTED_PROXY_HOPS=1`. Không mở cổng app (3000) trực tiếp ra Internet, nếu không IP có thể bị giả.
+- Cấu hình SMTP; đặt `ADMIN_EMAILS` là email thật của bạn.
+
 ## Bảo mật đã có
 - Mật khẩu băm scrypt (N=2^17); so sánh thời gian hằng; đăng nhập email không tồn tại tốn cùng thời gian.
 - Session: token ngẫu nhiên 256-bit trong cookie httpOnly/SameSite=Lax, DB chỉ lưu SHA-256 của token. Đổi/đặt lại mật khẩu hoặc bị khóa → thu hồi mọi session.
 - Token email dùng một lần, có hạn (xác nhận 24h, đặt lại 1h), cấp mới thì vô hiệu token cũ.
 - Đăng ký không tiết lộ email đã tồn tại hay chưa.
-- Giới hạn tần suất lưu trong Postgres: đăng ký, đăng nhập, gửi lại email, quên mật khẩu, bình luận.
+- Chống chiếm tài khoản trước đăng ký: mật khẩu lúc đăng ký chỉ có hiệu lực khi mở link xác nhận trên đúng trình duyệt đã đăng ký; mở nơi khác thì phải tự đặt mật khẩu mới.
+- Mỗi địa chỉ email nhận tối đa 5 thư/giờ từ hệ thống (chống spam hộp thư người khác); nội dung email được escape HTML.
+- Bài ẩn danh: tác giả tự bình luận cũng hiện "Ẩn danh · Tác giả", không lộ biệt danh.
+- Biệt danh không phân biệt hoa thường; chặn tên giả mạo như "Admin", "Ẩn danh", "Quản trị".
+- Giới hạn khách dùng AI: theo cookie, theo IP thật và trần tổng mỗi ngày (`GUEST_AI_DAILY_LIMIT`).
+- Giới hạn tần suất lưu trong Postgres: đăng ký (theo IP, theo email, trần toàn site), đăng nhập (theo tài khoản và theo IP), gửi lại email, quên mật khẩu, đổi mật khẩu, bình luận. IP lấy từ mục do proxy của bạn ghi thêm, không tin phần client tự gửi.
 - Hạn mức (2 câu AI, 2 bài/ngày gói Free) kiểm tra nguyên tử trong một câu UPDATE, không vượt được bằng request song song.
 - Bài ẩn danh: truy vấn công khai không bao giờ trả biệt danh/ID tác giả.
 - Mọi truy vấn dữ liệu cá nhân lọc theo người dùng hiện tại ở server. API AI chặn POST khác origin. Có CSP và security headers.

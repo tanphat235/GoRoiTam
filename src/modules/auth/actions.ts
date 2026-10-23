@@ -1,12 +1,13 @@
 "use server";
 
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { NO_PASSWORD, PENDING_EMAIL_COOKIE, newSignupNonce, nicknameProblem, syncAdmin } from "@/server/auth/account";
 import { DUMMY_HASH, hashPassword, verifyPassword } from "@/server/auth/password";
 import { createSession, destroyAllSessions, destroySession, getCurrentUser, requireMember } from "@/server/auth/session";
-import { consumeToken, issueToken } from "@/server/auth/tokens";
+import { consumeToken, issueToken, latestSignupBinding, type SignupBinding } from "@/server/auth/tokens";
 import { getDb, schema } from "@/server/db";
 import { sendMail } from "@/server/mail";
 import { clientIp, rateLimit } from "@/server/rate-limit";
@@ -15,42 +16,35 @@ import { safeNext, siteUrl } from "./redirect";
 const Email = z.string().trim().toLowerCase().email().max(254);
 const Password = z.string().min(8, "Mật khẩu tối thiểu 8 ký tự.").max(128);
 const Nickname = z.string().trim().min(3).max(24).regex(/^[\p{L}\p{N}_ .-]+$/u);
-const PENDING = "grt_pending_email";
 
 const fail = (path: string, msg: string): never => redirect(`${path}${path.includes("?") ? "&" : "?"}error=${encodeURIComponent(msg)}`);
 
-const adminEmails = () =>
-  (process.env.ADMIN_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
-
 async function rememberPending(email: string) {
-  (await cookies()).set(PENDING, email, {
+  (await cookies()).set(PENDING_EMAIL_COOKIE, email, {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 3600, path: "/",
   });
 }
 
-async function sendVerification(userId: string, email: string) {
-  const token = await issueToken(userId, "verify");
+async function sendVerification(userId: string, email: string, binding?: SignupBinding) {
+  const token = await issueToken(userId, "verify", binding);
   const link = `${siteUrl(await headers())}/xac-nhan-email?token=${token}`;
   await sendMail(email, "Xác nhận email · Gỡ Rối Tâm", "Chào mừng bạn đến với Gỡ Rối Tâm",
     "Bấm nút bên dưới để xác nhận email và bắt đầu hành trình. Liên kết có hiệu lực trong 24 giờ.",
     { href: link, label: "Xác nhận email" });
 }
 
-/** Promotes accounts listed in ADMIN_EMAILS (production bootstrap of the first admin). */
-async function syncAdmin(userId: string, email: string) {
-  if (!adminEmails().includes(email)) return;
-  const db = await getDb();
-  await db.update(schema.users).set({ role: "admin" }).where(eq(schema.users.id, userId));
-}
-
-// ---------------- sign up / verify ----------------
+// ---------------- sign up ----------------
 
 export async function signUp(formData: FormData) {
   const email = Email.safeParse(formData.get("email"));
   const password = Password.safeParse(formData.get("password"));
   if (!email.success) fail("/dang-ky", "Email không hợp lệ.");
   if (!password.success) fail("/dang-ky", "Mật khẩu tối thiểu 8 ký tự.");
-  if (!(await rateLimit(`signup:${await clientIp()}`, 5, 3600))) fail("/dang-ky", "Bạn thao tác quá nhanh. Hãy thử lại sau ít phút.");
+  const tooFast = "Bạn thao tác quá nhanh. Hãy thử lại sau ít phút.";
+  if (!(await rateLimit(`signup:ip:${await clientIp()}`, 5, 3600))) fail("/dang-ky", tooFast);
+  if (!(await rateLimit(`signup:email:${email.data}`, 3, 3600))) fail("/dang-ky", tooFast);
+  // Global ceiling: caps the damage of a distributed bot even if per-IP limits are evaded.
+  if (!(await rateLimit("signup:global", Number(process.env.SIGNUP_HOURLY_LIMIT ?? 60), 3600))) fail("/dang-ky", "Hệ thống đang quá tải, hãy thử lại sau.");
 
   const db = await getDb();
   const [existing] = await db.select().from(schema.users).where(eq(schema.users.email, email.data!));
@@ -59,43 +53,29 @@ export async function signUp(formData: FormData) {
     await sendMail(email.data!, "Tài khoản đã tồn tại · Gỡ Rối Tâm", "Bạn đã có tài khoản",
       "Ai đó (có thể là bạn) vừa đăng ký bằng email này. Hãy đăng nhập, hoặc dùng “Quên mật khẩu” nếu không nhớ mật khẩu.",
       { href: `${siteUrl(await headers())}/dang-nhap`, label: "Đăng nhập" });
-  } else if (existing) {
-    await sendVerification(existing.id, existing.email);
   } else {
-    const [user] = await db
+    // The password is NOT stored on the account yet: it travels with this signup's token and is
+    // applied only if the link is opened in this same browser (see verifyEmailToken).
+    const binding = { passwordHash: await hashPassword(password.data!), nonceHash: await newSignupNonce() };
+    const userId = existing?.id ?? (await db
       .insert(schema.users)
-      .values({ email: email.data!, passwordHash: await hashPassword(password.data!) })
-      .returning({ id: schema.users.id });
-    await sendVerification(user.id, email.data!);
+      .values({ email: email.data!, passwordHash: NO_PASSWORD })
+      .returning({ id: schema.users.id }))[0].id;
+    await sendVerification(userId, email.data!, binding);
   }
   await rememberPending(email.data!);
   redirect("/kiem-tra-email");
 }
 
 export async function resendVerification() {
-  const email = (await cookies()).get(PENDING)?.value;
+  const email = (await cookies()).get(PENDING_EMAIL_COOKIE)?.value;
   if (!email) fail("/dang-nhap", "Phiên đã hết hạn. Hãy đăng nhập để nhận email mới.");
   if (!(await rateLimit(`resend:${email}`, 3, 3600))) fail("/kiem-tra-email", "Bạn đã yêu cầu gửi lại nhiều lần. Hãy đợi một lúc.");
   const db = await getDb();
   const [user] = await db.select().from(schema.users).where(and(eq(schema.users.email, email!), isNull(schema.users.emailVerifiedAt)));
-  if (user) await sendVerification(user.id, user.email);
+  // Keeps the latest signup's binding, so opening the new link in the same browser still applies that password.
+  if (user) await sendVerification(user.id, user.email, (await latestSignupBinding(user.id)) ?? undefined);
   redirect("/kiem-tra-email?sent=1");
-}
-
-/** Called by the /xac-nhan-email route with the token from the email link. */
-export async function verifyEmailToken(token: string) {
-  const userId = await consumeToken(token, "verify");
-  if (!userId) return false;
-  const db = await getDb();
-  const [user] = await db
-    .update(schema.users)
-    .set({ emailVerifiedAt: new Date() })
-    .where(eq(schema.users.id, userId))
-    .returning({ id: schema.users.id, email: schema.users.email });
-  await syncAdmin(user.id, user.email);
-  await createSession(user.id);
-  (await cookies()).delete(PENDING);
-  return true;
 }
 
 // ---------------- sign in / out ----------------
@@ -106,17 +86,25 @@ export async function signIn(formData: FormData) {
   const email = Email.safeParse(formData.get("email"));
   const password = String(formData.get("password") ?? "");
   if (!email.success || !password) fail(back, "Email hoặc mật khẩu không đúng.");
-  if (!(await rateLimit(`login:${await clientIp()}:${email.data}`, 10, 900))) fail(back, "Bạn thử quá nhiều lần. Hãy đợi 15 phút.");
+  // Per account (stops distributed guessing whatever the IP) and per IP (stops one source spraying many accounts).
+  const limited = "Bạn thử quá nhiều lần. Hãy đợi 15 phút.";
+  if (!(await rateLimit(`login:acct:${email.data}`, 10, 900))) fail(back, limited);
+  if (!(await rateLimit(`login:ip:${await clientIp()}`, 30, 900))) fail(back, limited);
 
   const db = await getDb();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email.data!));
+  if (user && !user.emailVerifiedAt) {
+    // Unverified: the only password is the one carried by the latest signup token.
+    const binding = await latestSignupBinding(user.id);
+    if (binding && (await verifyPassword(password, binding.passwordHash))) {
+      await rememberPending(user.email);
+      redirect("/kiem-tra-email");
+    }
+    fail(back, "Email hoặc mật khẩu không đúng.");
+  }
   const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
   if (!user || !ok) fail(back, "Email hoặc mật khẩu không đúng.");
   if (user!.bannedAt) fail(back, "Tài khoản này đã bị khóa do vi phạm quy định cộng đồng.");
-  if (!user!.emailVerifiedAt) {
-    await rememberPending(user!.email);
-    redirect("/kiem-tra-email");
-  }
   await syncAdmin(user!.id, user!.email);
   await createSession(user!.id);
   redirect(user!.nickname ? next : "/chon-biet-danh");
@@ -132,7 +120,8 @@ export async function signOut() {
 export async function requestPasswordReset(formData: FormData) {
   const email = Email.safeParse(formData.get("email"));
   if (!email.success) fail("/quen-mat-khau", "Email không hợp lệ.");
-  if (await rateLimit(`reset:${await clientIp()}:${email.data}`, 3, 3600)) {
+  const allowed = (await rateLimit(`reset:ip:${await clientIp()}`, 10, 3600)) && (await rateLimit(`reset:email:${email.data}`, 3, 3600));
+  if (allowed) {
     const db = await getDb();
     const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email.data!));
     if (user && !user.bannedAt) {
@@ -142,6 +131,7 @@ export async function requestPasswordReset(formData: FormData) {
         { href: `${siteUrl(await headers())}/dat-lai-mat-khau?token=${token}`, label: "Đặt mật khẩu mới" });
     }
   }
+  // Same answer whether or not the email exists.
   redirect("/quen-mat-khau?sent=1");
 }
 
@@ -149,15 +139,17 @@ export async function resetPassword(formData: FormData) {
   const token = String(formData.get("token") ?? "");
   const password = Password.safeParse(formData.get("password"));
   if (!password.success) fail(`/dat-lai-mat-khau?token=${encodeURIComponent(token)}`, "Mật khẩu tối thiểu 8 ký tự.");
-  const userId = await consumeToken(token, "reset");
-  if (!userId) fail("/quen-mat-khau", "Liên kết đã hết hạn hoặc đã được dùng. Hãy yêu cầu liên kết mới.");
+  const row = await consumeToken(token, "reset");
+  if (!row) fail("/quen-mat-khau", "Liên kết đã hết hạn hoặc đã được dùng. Hãy yêu cầu liên kết mới.");
+  const userId = row!.userId;
   const db = await getDb();
   // The reset link proves ownership of the mailbox, so the email counts as verified too.
-  await db.update(schema.users).set({ passwordHash: await hashPassword(password.data!) }).where(eq(schema.users.id, userId!));
-  await db.update(schema.users).set({ emailVerifiedAt: new Date() }).where(and(eq(schema.users.id, userId!), isNull(schema.users.emailVerifiedAt)));
-  await destroyAllSessions(userId!);
-  await createSession(userId!);
-  redirect("/?reset=1");
+  await db.update(schema.users).set({ passwordHash: await hashPassword(password.data!) }).where(eq(schema.users.id, userId));
+  await db.update(schema.users).set({ emailVerifiedAt: new Date() }).where(and(eq(schema.users.id, userId), isNull(schema.users.emailVerifiedAt)));
+  await destroyAllSessions(userId);
+  await createSession(userId);
+  const [u] = await db.select({ nickname: schema.users.nickname }).from(schema.users).where(eq(schema.users.id, userId));
+  redirect(u?.nickname ? "/?reset=1" : "/chon-biet-danh");
 }
 
 // ---------------- profile ----------------
@@ -168,10 +160,9 @@ export async function chooseNickname(formData: FormData) {
   if (!user.emailVerified) redirect("/kiem-tra-email");
   const nickname = Nickname.safeParse(formData.get("nickname"));
   if (!nickname.success) fail("/chon-biet-danh", "Biệt danh dài 3-24 ký tự, gồm chữ, số, dấu cách, . _ -");
+  const problem = await nicknameProblem(nickname.data!, user.id);
+  if (problem) fail("/chon-biet-danh", problem);
   const db = await getDb();
-  const [taken] = await db.select({ id: schema.users.id }).from(schema.users)
-    .where(and(eq(schema.users.nickname, nickname.data!), ne(schema.users.id, user.id)));
-  if (taken) fail("/chon-biet-danh", "Biệt danh này đã có người dùng.");
   await db.update(schema.users).set({ nickname: nickname.data! }).where(eq(schema.users.id, user.id));
   redirect("/");
 }
@@ -181,10 +172,10 @@ export async function updateProfile(formData: FormData) {
   const nickname = Nickname.safeParse(formData.get("nickname"));
   const bio = z.string().trim().max(160).safeParse(formData.get("bio") ?? "");
   if (!nickname.success || !bio.success) fail("/ho-so/cai-dat", "Biệt danh 3-24 ký tự, giới thiệu tối đa 160 ký tự.");
+  const problem = await nicknameProblem(nickname.data!, user.id);
+  if (problem) fail("/ho-so/cai-dat", problem);
   const db = await getDb();
-  const [taken] = await db.select({ id: schema.users.id }).from(schema.users)
-    .where(and(eq(schema.users.nickname, nickname.data!), ne(schema.users.id, user.id)));
-  if (taken) fail("/ho-so/cai-dat", "Biệt danh này đã có người dùng.");
+  // Only these two columns are ever written from user input (no mass assignment of role/plan).
   await db.update(schema.users).set({ nickname: nickname.data!, bio: bio.data! || null }).where(eq(schema.users.id, user.id));
   redirect("/ho-so/cai-dat?ok=1");
 }
@@ -194,6 +185,7 @@ export async function changePassword(formData: FormData) {
   const current = String(formData.get("current") ?? "");
   const next = Password.safeParse(formData.get("password"));
   if (!next.success) fail("/ho-so/cai-dat", "Mật khẩu mới tối thiểu 8 ký tự.");
+  if (!(await rateLimit(`pwchange:${user.id}`, 10, 900))) fail("/ho-so/cai-dat", "Bạn thử quá nhiều lần. Hãy đợi 15 phút.");
   const db = await getDb();
   const [row] = await db.select({ hash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, user.id));
   if (!(await verifyPassword(current, row.hash))) fail("/ho-so/cai-dat", "Mật khẩu hiện tại không đúng.");
@@ -203,9 +195,10 @@ export async function changePassword(formData: FormData) {
   redirect("/ho-so/cai-dat?ok=1");
 }
 
-/** Permanently deletes the account; every owned row cascades (posts, comments, chats, practice, journal). */
+/** Permanently deletes the account; every owned row cascades (posts, comments, chats, practice, journal, sessions). */
 export async function deleteAccount(formData: FormData) {
   const user = await requireMember();
+  if (!(await rateLimit(`delete:${user.id}`, 10, 900))) fail("/ho-so/cai-dat", "Bạn thử quá nhiều lần. Hãy đợi 15 phút.");
   const db = await getDb();
   const [row] = await db.select({ hash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, user.id));
   if (!(await verifyPassword(String(formData.get("password") ?? ""), row.hash))) fail("/ho-so/cai-dat", "Mật khẩu không đúng, tài khoản chưa bị xóa.");

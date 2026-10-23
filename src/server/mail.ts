@@ -1,5 +1,6 @@
 import "server-only";
 import nodemailer, { type Transporter } from "nodemailer";
+import { rateLimit } from "./rate-limit";
 
 let transport: Transporter | null = null;
 
@@ -15,13 +16,16 @@ function getTransport() {
   return transport;
 }
 
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+// Every value is escaped, so nothing user-influenced can inject markup into the email.
 const layout = (title: string, body: string, cta?: { href: string; label: string }) => `
 <div style="font-family:Arial,sans-serif;background:#f8f7f1;padding:24px">
   <div style="max-width:520px;margin:auto;background:#fff;border-radius:16px;padding:28px;border:1px solid #e6dfcc">
-    <h2 style="color:#3e6b4a;margin:0 0 12px">${title}</h2>
-    <div style="color:#4a4a4a;line-height:1.6">${body}</div>
-    ${cta ? `<p style="margin:24px 0"><a href="${cta.href}" style="background:#3e6b4a;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none">${cta.label}</a></p>
-    <p style="color:#888;font-size:12px">Nếu nút không hoạt động, mở liên kết: ${cta.href}</p>` : ""}
+    <h2 style="color:#3e6b4a;margin:0 0 12px">${esc(title)}</h2>
+    <div style="color:#4a4a4a;line-height:1.6">${esc(body)}</div>
+    ${cta ? `<p style="margin:24px 0"><a href="${esc(cta.href)}" style="background:#3e6b4a;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none">${esc(cta.label)}</a></p>
+    <p style="color:#888;font-size:12px">Nếu nút không hoạt động, mở liên kết: ${esc(cta.href)}</p>` : ""}
     <p style="color:#888;font-size:12px;margin-top:24px">Gỡ Rối Tâm · Nếu bạn không yêu cầu email này, hãy bỏ qua.</p>
   </div>
 </div>`;
@@ -31,6 +35,12 @@ const layout = (title: string, body: string, cta?: { href: string; label: string
  * to the server console so the full flow (including the link) can still be exercised.
  */
 export async function sendMail(to: string, subject: string, title: string, body: string, cta?: { href: string; label: string }) {
+  // Per-recipient cap: whatever the trigger (signup, resend, reset), one address gets at most
+  // 5 emails an hour, so the forms cannot be used to flood someone else's inbox.
+  if (!(await rateLimit(`mail:${to.toLowerCase()}`, 5, 3600))) {
+    console.warn("mail suppressed: per-recipient limit reached");
+    return;
+  }
   const t = getTransport();
   if (!t) {
     if (process.env.NODE_ENV === "production") throw new Error("SMTP is not configured");

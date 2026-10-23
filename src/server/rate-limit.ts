@@ -22,7 +22,18 @@ export async function rateLimit(key: string, limit: number, windowSec: number) {
   return (row?.count ?? 0) <= limit;
 }
 
+/**
+ * Client IP as seen by our own reverse proxy. X-Forwarded-For is a list the client can pre-fill,
+ * so the LEFT entries are attacker-controlled; only the entry appended by the proxy we run is
+ * trustworthy. TRUSTED_PROXY_HOPS = number of our proxies in front of the app (default 1, e.g. Nginx).
+ */
+export function clientIpFrom(h: { get(name: string): string | null }) {
+  const hops = Math.max(Number(process.env.TRUSTED_PROXY_HOPS ?? 1), 0);
+  const chain = (h.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (hops > 0 && chain.length >= hops) return chain[chain.length - hops];
+  return h.get("x-real-ip") || "unknown";
+}
+
 export async function clientIp() {
-  const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  return clientIpFrom(await headers());
 }

@@ -61,15 +61,23 @@ export async function getPost(id: string, viewerId: string | null) {
   return (row as FeedPost | undefined) ?? null;
 }
 
+/**
+ * Comments of a post. When the post is anonymous, the author's own replies stay anonymous too
+ * (nickname withheld, shown as "Tác giả"); otherwise replying would reveal who wrote the post.
+ */
 export async function listComments(postId: string, viewerId: string | null) {
   const db = await getDb();
+  const byAuthor = sql<boolean>`${comments.authorId} = ${posts.authorId}`;
   return db
     .select({
-      id: comments.id, body: comments.body, createdAt: comments.createdAt, nickname: users.nickname,
+      id: comments.id, body: comments.body, createdAt: comments.createdAt,
+      nickname: sql<string | null>`case when ${posts.isAnonymous} and ${byAuthor} then null else ${users.nickname} end`,
+      byAuthor,
       mine: viewerId ? sql<boolean>`${comments.authorId} = ${viewerId}` : sql<boolean>`false`,
     })
     .from(comments)
     .innerJoin(users, eq(users.id, comments.authorId))
+    .innerJoin(posts, eq(posts.id, comments.postId))
     .where(and(eq(comments.postId, postId), eq(comments.status, "visible"), isNull(users.bannedAt)))
     .orderBy(comments.createdAt);
 }

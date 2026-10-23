@@ -5,7 +5,9 @@ import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { consumeToken, issueToken } from "@/server/auth/tokens";
 import { getDb, schema } from "@/server/db";
 import { consumeGuestQuota, consumeQuota, refundQuota, usageToday } from "@/server/quota";
-import { listFeed } from "@/modules/community/queries";
+import { listComments, listFeed } from "@/modules/community/queries";
+import { nicknameProblem } from "@/server/auth/account";
+import { clientIpFrom } from "@/server/rate-limit";
 import { searchTeachings } from "@/modules/ai/retrieve";
 
 let alice: string;
@@ -55,14 +57,14 @@ describe("email tokens", () => {
   it("are single use and purpose-bound", async () => {
     const t = await issueToken(alice, "verify");
     expect(await consumeToken(t, "reset")).toBeNull();
-    expect(await consumeToken(t, "verify")).toBe(alice);
+    expect((await consumeToken(t, "verify"))?.userId).toBe(alice);
     expect(await consumeToken(t, "verify")).toBeNull();
   });
   it("issuing a new token invalidates the previous one", async () => {
     const first = await issueToken(bob, "reset");
     const second = await issueToken(bob, "reset");
     expect(await consumeToken(first, "reset")).toBeNull();
-    expect(await consumeToken(second, "reset")).toBe(bob);
+    expect((await consumeToken(second, "reset"))?.userId).toBe(bob);
   });
 });
 
@@ -97,5 +99,37 @@ describe("teaching search", () => {
     expect(withAccents.length).toBeGreaterThan(0);
     expect(without.map((c) => c.id)).toEqual(withAccents.map((c) => c.id));
     expect(withAccents.some((c) => c.locator === "Tham sân si")).toBe(true);
+  });
+});
+
+describe("security fixes", () => {
+  it("an anonymous author's own reply does not reveal their nickname", async () => {
+    const db = await getDb();
+    const [{ id: postId }] = await db.insert(schema.posts)
+      .values({ authorId: alice, title: "Ẩn danh 2", body: "riêng", isAnonymous: true }).returning({ id: schema.posts.id });
+    await db.insert(schema.comments).values([
+      { postId, authorId: alice, body: "tác giả trả lời" },
+      { postId, authorId: bob, body: "người khác trả lời" },
+    ]);
+    const list = await listComments(postId, bob);
+    const own = list.find((c) => c.body === "tác giả trả lời")!;
+    expect(own.nickname).toBeNull();
+    expect(own.byAuthor).toBe(true);
+    expect(JSON.stringify(list)).not.toContain("Alice");
+    expect(list.find((c) => c.body === "người khác trả lời")!.nickname).toBe("Bob");
+  });
+
+  it("nicknames are unique case-insensitively and staff-like names are reserved", async () => {
+    expect(await nicknameProblem("alice")).toMatch(/đã có người dùng/);
+    expect(await nicknameProblem("Admin")).toMatch(/dành riêng/);
+    expect(await nicknameProblem("Ẩn danh")).toMatch(/dành riêng/);
+    expect(await nicknameProblem("Alice", alice)).toBeNull();
+    expect(await nicknameProblem("Thiện Tâm")).toBeNull();
+  });
+
+  it("client IP comes from the proxy-appended entry, not the client-supplied one", () => {
+    const h = (xff: string) => ({ get: (n: string) => (n === "x-forwarded-for" ? xff : null) });
+    expect(clientIpFrom(h("6.6.6.6, 203.0.113.9"))).toBe("203.0.113.9");
+    expect(clientIpFrom(h("203.0.113.9"))).toBe("203.0.113.9");
   });
 });

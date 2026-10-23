@@ -5,11 +5,16 @@ import { resetPassword } from "@/modules/auth/actions";
 
 export const metadata = { title: "Đặt lại mật khẩu" };
 
-export default async function Page({ searchParams }: { searchParams: Promise<{ token?: string; error?: string }> }) {
+export default async function Page({ searchParams }: { searchParams: Promise<{ token?: string; error?: string; "xac-nhan"?: string }> }) {
   const sp = await searchParams;
   return (
     <AuthFrame title="Đặt mật khẩu mới" sub="Sau khi đổi, mọi thiết bị khác sẽ bị đăng xuất.">
       {sp.error && <Notice kind="error">{sp.error}</Notice>}
+      {sp["xac-nhan"] && (
+        <Notice kind="ok">
+          Email đã được xác nhận. Vì liên kết được mở trên trình duyệt hoặc thiết bị khác nơi bạn đăng ký, hãy đặt mật khẩu để bảo vệ tài khoản.
+        </Notice>
+      )}
       {sp.token ? (
         <form action={resetPassword} className="space-y-4">
           <input type="hidden" name="token" value={sp.token} />

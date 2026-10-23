@@ -75,7 +75,11 @@ export default async function Page({ params, searchParams }: { params: Promise<{
             <div className="flex items-start gap-3">
               <Avatar name={c.nickname} size={32} />
               <div className="min-w-0 flex-1">
-                <p className="text-sm"><span className="font-semibold">{c.nickname}</span> <span className="text-xs text-muted">· {timeAgo(c.createdAt)}</span></p>
+                <p className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <span className="font-semibold">{c.nickname ?? "Ẩn danh"}</span>
+                  {c.byAuthor && <Badge>Tác giả</Badge>}
+                  <span className="text-xs text-muted">· {timeAgo(c.createdAt)}</span>
+                </p>
                 <p className="mt-1 whitespace-pre-line text-sm leading-relaxed">{c.body}</p>
                 <div className="mt-2 flex gap-4 text-xs">
                   {c.mine && (

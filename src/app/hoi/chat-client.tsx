@@ -7,7 +7,7 @@ import { Lotus } from "@/components/lotus";
 import { Reply } from "@/components/reply";
 import type { Source } from "@/modules/ai/format";
 
-type Msg = { role: "user" | "assistant"; content: string; sources?: Source[]; locked?: boolean };
+type Msg = { role: "user" | "assistant"; content: string; sources?: Source[]; locked?: boolean; offTopic?: boolean };
 
 const ERRORS: Record<string, string> = {
   quota: "Bạn đã dùng hết lượt hỏi AI hôm nay. Mai quay lại nhé.",
@@ -63,7 +63,7 @@ export function ChatClient({ initial, conversationId: initialConv, initialQuery,
         window.history.replaceState(null, "", `/hoi?c=${json.conversationId}`);
       }
       if (json.locked) setNeedSignup(true);
-      setMessages((m) => [...m, { role: "assistant", content: json.reply, sources: json.sources, locked: json.locked }]);
+      setMessages((m) => [...m, { role: "assistant", content: json.reply, sources: json.sources, locked: json.locked, offTopic: json.offTopic }]);
     } catch {
       setError("Mất kết nối, hãy thử lại.");
       setMessages((m) => m.slice(0, -1));
@@ -110,6 +110,7 @@ export function ChatClient({ initial, conversationId: initialConv, initialQuery,
               <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft"><Lotus size={24} /></span>
               <div className="min-w-0 flex-1 rounded-3xl rounded-tl-md border border-border bg-surface px-5 py-4 shadow-soft">
                 <Reply text={m.content} sources={m.sources} />
+                {m.offTopic && <p className="mt-3 text-xs text-muted">Không tính vào lượt hỏi của bạn.</p>}
                 {m.locked && (
                   <p className="mt-4 rounded-2xl bg-primary-soft p-3 text-sm">
                     Phần <b>Thực hành</b> dành cho thành viên. <Link href="/dang-ky" className="font-medium text-primary underline">Đăng ký miễn phí</Link> để xem tiếp, lưu lịch sử và lập lịch tu tập.

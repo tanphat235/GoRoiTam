@@ -7,14 +7,19 @@ import { finalizeReply, lockPractice } from "@/modules/ai/format";
 import { checkMessage, crisisReply } from "@/modules/ai/guard";
 import { buildSystemPrompt } from "@/modules/ai/prompt";
 import { searchTeachings } from "@/modules/ai/retrieve";
+import { classifyTopic } from "@/modules/ai/topic";
 import { getCurrentUser } from "@/server/auth/session";
 import { sha256 } from "@/server/crypto";
 import { getDb, schema } from "@/server/db";
 import { consumeGuestQuota, consumeQuota, refundQuota } from "@/server/quota";
+import { clientIpFrom } from "@/server/rate-limit";
 
 const Body = z.object({ message: z.string(), conversationId: z.string().uuid().optional() });
 const GUEST_PER_COOKIE = 1;
 const GUEST_PER_IP = 5;
+// Hard ceiling on free guest answers per day across ALL visitors: bounds LLM cost even if a bot
+// rotates cookies and IPs.
+const GUEST_GLOBAL_DAILY = Number(process.env.GUEST_AI_DAILY_LIMIT ?? 100);
 
 /** Blocks cross-site POSTs (this route is not a Server Action, so it needs its own origin check). */
 function sameOrigin(req: NextRequest) {
@@ -40,17 +45,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reply: crisisReply(process.env.CRISIS_HELP_TEXT), sources: [], locked: false, crisis: true, conversationId: parsed.data.conversationId ?? null });
   }
 
+  // Scope gate: only life questions reach the model. Refusals are fixed text: no LLM call, no tokens,
+  // no quota used, nothing stored.
+  const topic = classifyTopic(checked.text, Boolean(member && parsed.data.conversationId));
+  if (!topic.allowed) {
+    return NextResponse.json({ reply: topic.reply, sources: [], locked: false, crisis: false, offTopic: true, conversationId: parsed.data.conversationId ?? null });
+  }
+
   const db = await getDb();
   let guestCookie: string | undefined;
   if (member) {
     if (!(await consumeQuota(member.id, member.plan, "ai"))) return NextResponse.json({ error: "quota" }, { status: 429 });
   } else {
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ip = clientIpFrom(req.headers);
     guestCookie = req.cookies.get("grt_gid")?.value || randomUUID();
     const salt = process.env.GUEST_HASH_SALT ?? "";
-    const okCookie = await consumeGuestQuota(sha256(`${salt}|c|${guestCookie}`), GUEST_PER_COOKIE);
-    const okIp = okCookie && (await consumeGuestQuota(sha256(`${salt}|i|${ip}`), GUEST_PER_IP));
-    if (!okCookie || !okIp) return NextResponse.json({ error: "guest_limit" }, { status: 429 });
+    const allowed =
+      (await consumeGuestQuota(sha256(`${salt}|c|${guestCookie}`), GUEST_PER_COOKIE)) &&
+      (await consumeGuestQuota(sha256(`${salt}|i|${ip}`), GUEST_PER_IP)) &&
+      (await consumeGuestQuota("global", GUEST_GLOBAL_DAILY));
+    if (!allowed) return NextResponse.json({ error: "guest_limit" }, { status: 429 });
   }
 
   try {
