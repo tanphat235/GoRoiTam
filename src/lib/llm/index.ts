@@ -11,7 +11,15 @@ export function getLLM(): LLMProvider {
     const baseUrl = process.env.LLM_BASE_URL;
     const model = process.env.LLM_MODEL;
     if (!baseUrl || !model) throw new Error("LLM_BASE_URL and LLM_MODEL are required");
-    return openAICompatible({ baseUrl, model, apiKey: process.env.LLM_API_KEY || undefined });
+    const maxTokens = Number(process.env.LLM_MAX_TOKENS) || undefined;
+    return openAICompatible({
+      baseUrl,
+      model,
+      apiKey: process.env.LLM_API_KEY || undefined,
+      maxTokens,
+      reasoningEffort: process.env.LLM_REASONING_EFFORT || undefined,
+    });
   }
-  throw new Error(`Unknown LLM_PROVIDER: ${provider}`);
+  // Never echo the value: a misplaced API key here would otherwise end up in the logs.
+  throw new Error('Unknown LLM_PROVIDER (expected "mock" or "openai-compatible")');
 }

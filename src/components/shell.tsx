@@ -1,75 +1,99 @@
 import Link from "next/link";
-import { BookOpenCheck, Home, MessageCircleHeart, Sprout, Users } from "lucide-react";
+import { ChevronRight, LogOut, Search, ShieldCheck } from "lucide-react";
 import { signOut } from "@/modules/auth/actions";
-import { getSession } from "@/modules/auth/session";
-
-const NAV = [
-  { href: "/", label: "Trang chủ", icon: Home },
-  { href: "/hoi", label: "Hỏi AI", icon: MessageCircleHeart },
-  { href: "/cong-dong", label: "Cộng đồng", icon: Users },
-  { href: "/lich-tu-tap", label: "Lịch tu tập", icon: Sprout },
-  { href: "/nhat-ky", label: "Nhật ký", icon: BookOpenCheck },
-];
+import { getCurrentUser } from "@/server/auth/session";
+import { Ambient } from "./ambient";
+import { BrandMark } from "./lotus";
+import { NavLinks } from "./nav-links";
+import { ThemeToggle } from "./theme-toggle";
+import { Avatar } from "./ui";
 
 export async function Shell({ children }: { children: React.ReactNode }) {
-  const { profile } = await getSession();
+  const user = await getCurrentUser();
+  const member = user?.emailVerified && user.nickname ? user : null;
   return (
-    <div className="mx-auto flex min-h-screen max-w-6xl">
-      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-border p-4 md:flex">
-        <Link href="/" className="mb-6 font-serif text-xl font-semibold text-primary-hover">
-          Gỡ Rối Tâm
-        </Link>
-        <nav aria-label="Chính" className="flex flex-1 flex-col gap-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-primary-soft">
-              <Icon size={18} aria-hidden /> {label}
-            </Link>
-          ))}
+    <>
+    <Ambient />
+    <div className="relative z-10 mx-auto flex min-h-screen max-w-[1400px]">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface/70 px-4 py-6 backdrop-blur-[2px] lg:flex">
+        <Brand />
+        <nav aria-label="Chính" className="mt-9 flex flex-1 flex-col gap-1">
+          <NavLinks variant="side" />
         </nav>
-        <Account profile={profile} />
+        {member ? (
+          <div className="space-y-2">
+            {member.role !== "user" && (
+              <Link href="/admin" className="flex items-center gap-2 rounded-2xl px-3.5 py-2 text-sm text-primary hover:bg-primary-soft">
+                <ShieldCheck size={17} aria-hidden /> Quản trị
+              </Link>
+            )}
+            <Link href="/ho-so" className="lift flex items-center gap-3 rounded-2xl border border-border bg-surface p-3">
+              <Avatar name={member.nickname} size={40} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{member.nickname}</span>
+                <span className="block text-xs text-muted">{member.role === "admin" ? "Quản trị viên" : "Thành viên"}</span>
+              </span>
+              <ChevronRight size={16} aria-hidden className="text-muted" />
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-2 rounded-2xl border border-border bg-surface p-4 text-sm">
+            <p className="text-muted">Lưu lịch sử, tham gia cộng đồng và lập lịch tu tập.</p>
+            <div className="grid gap-2">
+              <Link href="/dang-ky" className="whitespace-nowrap rounded-full bg-primary px-3 py-2 text-center font-medium text-white hover:bg-primary-hover dark:text-[#10170f]">Đăng ký miễn phí</Link>
+              <Link href="/dang-nhap" className="whitespace-nowrap rounded-full border border-border px-3 py-2 text-center hover:bg-primary-soft">Đăng nhập</Link>
+            </div>
+          </div>
+        )}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-border px-4 py-3 md:hidden">
-          <Link href="/" className="font-serif text-lg font-semibold text-primary-hover">
-            Gỡ Rối Tâm
-          </Link>
-          <Account profile={profile} compact />
+        <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
+          <div className="flex items-center gap-3 px-4 py-3 lg:px-10">
+            <div className="lg:hidden"><Brand small /></div>
+            <form action="/tim-kiem" role="search" className="relative ml-auto hidden max-w-md flex-1 sm:block lg:ml-0">
+              <Search size={17} aria-hidden className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+              <label htmlFor="global-search" className="sr-only">Tìm kiếm</label>
+              <input id="global-search" name="q" placeholder="Tìm câu hỏi, chủ đề, bài viết…" className="w-full rounded-full border border-border bg-surface py-2.5 pl-11 pr-4 text-sm placeholder:text-muted/70 focus:border-sage focus:outline-none focus-visible:ring-4 focus-visible:ring-primary-soft" />
+            </form>
+            <div className="ml-auto flex items-center gap-2">
+              <Link href="/tim-kiem" aria-label="Tìm kiếm" className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-muted sm:hidden"><Search size={18} aria-hidden /></Link>
+              <ThemeToggle />
+              {member ? (
+                <form action={signOut}>
+                  <button aria-label="Đăng xuất" title="Đăng xuất" className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-muted hover:text-warn"><LogOut size={17} aria-hidden /></button>
+                </form>
+              ) : (
+                <Link href="/dang-nhap" className="rounded-full border border-border bg-surface px-4 py-2 text-sm lg:hidden">Đăng nhập</Link>
+              )}
+            </div>
+          </div>
         </header>
-        <main className="flex-1 px-4 pb-24 pt-6 md:px-8 md:pb-10">{children}</main>
-        <footer className="px-4 pb-24 text-xs text-muted md:px-8 md:pb-6">
-          <Link href="/quyen-rieng-tu" className="underline">Quyền riêng tư</Link> ·{" "}
-          <Link href="/dieu-khoan" className="underline">Điều khoản</Link>
+
+        <main className="flex-1 px-4 pb-28 pt-6 lg:px-10 lg:pb-12 lg:pt-8">
+          <div className="mx-auto w-full max-w-5xl">{children}</div>
+        </main>
+        <footer className="px-4 pb-28 text-xs text-muted lg:px-10 lg:pb-6">
+          <div className="mx-auto flex max-w-5xl flex-wrap gap-x-4 gap-y-1">
+            <span>© Gỡ Rối Tâm</span>
+            <Link href="/quyen-rieng-tu" className="hover:underline">Quyền riêng tư</Link>
+            <Link href="/dieu-khoan" className="hover:underline">Điều khoản</Link>
+          </div>
         </footer>
       </div>
 
-      <nav aria-label="Chính (di động)" className="fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-border bg-surface py-1 md:hidden">
-        {NAV.map(({ href, label, icon: Icon }) => (
-          <Link key={href} href={href} className="flex flex-col items-center gap-0.5 px-2 py-1 text-[11px]">
-            <Icon size={20} aria-hidden /> {label}
-          </Link>
-        ))}
+      <nav aria-label="Chính (di động)" className="fixed inset-x-0 bottom-0 z-20 flex border-t border-border bg-surface/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
+        <NavLinks variant="bottom" />
       </nav>
     </div>
+    </>
   );
 }
 
-function Account({ profile, compact }: { profile: { nickname: string; role: string } | null; compact?: boolean }) {
-  if (!profile) {
-    return (
-      <div className="flex gap-2">
-        <Link href="/dang-nhap" className="rounded-full border border-border px-3 py-1 text-sm">Đăng nhập</Link>
-        {!compact && <Link href="/dang-ky" className="rounded-full bg-primary px-3 py-1 text-sm text-white">Đăng ký</Link>}
-      </div>
-    );
-  }
+function Brand({ small }: { small?: boolean }) {
   return (
-    <div className={compact ? "flex items-center gap-2 text-sm" : "space-y-2 text-sm"}>
-      <Link href="/ho-so" className="block font-medium underline-offset-2 hover:underline">{profile.nickname}</Link>
-      {profile.role !== "user" && <Link href="/admin" className="block text-primary-hover underline">Quản trị</Link>}
-      <form action={signOut}>
-        <button className="text-muted underline">Đăng xuất</button>
-      </form>
-    </div>
+    <Link href="/" aria-label="Gỡ Rối Tâm, trang chủ" className="rounded-2xl focus-visible:outline-2 focus-visible:outline-primary">
+      <BrandMark small={small} />
+    </Link>
   );
 }

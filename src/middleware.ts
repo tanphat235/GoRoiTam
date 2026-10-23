@@ -1,38 +1,22 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED = ["/lich-tu-tap", "/nhat-ky", "/ho-so", "/admin", "/chon-biet-danh"];
+const PROTECTED = ["/lich-tu-tap", "/nhat-ky", "/ho-so", "/admin", "/cong-dong/viet"];
 
-export async function middleware(request: NextRequest) {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return NextResponse.next();
-  }
-  let response = NextResponse.next({ request });
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll: () => request.cookies.getAll(),
-        setAll: (toSet) => {
-          toSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          toSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-        },
-      },
-    },
-  );
-  const { data } = await supabase.auth.getUser();
+/**
+ * Cheap edge gate: no session cookie -> send to login. The real check (valid, unexpired,
+ * not banned, verified) happens on the server in requireMember(), which reads the database.
+ */
+export function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (!data.user && PROTECTED.some((p) => path === p || path.startsWith(p + "/"))) {
+  if (PROTECTED.some((p) => path === p || path.startsWith(`${p}/`)) && !request.cookies.has("grt_session")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dang-nhap";
-    url.search = "";
+    url.search = `?next=${encodeURIComponent(path)}`;
     return NextResponse.redirect(url);
   }
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/).*)"],
 };

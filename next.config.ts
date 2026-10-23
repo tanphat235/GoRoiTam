@@ -16,6 +16,8 @@ const csp = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Native/WASM database drivers must not be bundled by webpack.
+  serverExternalPackages: ["@electric-sql/pglite", "postgres"],
   async headers() {
     return [
       {

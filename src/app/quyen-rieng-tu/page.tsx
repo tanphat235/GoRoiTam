@@ -1,14 +1,14 @@
-import { PageTitle } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Quyền riêng tư" };
 
 export default function Page() {
   return (
     <article className="mx-auto max-w-2xl space-y-4 text-sm leading-relaxed">
-      <PageTitle title="Quyền riêng tư" sub="Bản nháp cho giai đoạn beta — cần rà soát pháp lý trước khi ra công khai." />
+      <PageHeader title="Quyền riêng tư" sub="Bản nháp cho giai đoạn beta — cần rà soát pháp lý trước khi ra công khai." />
       <h2 className="font-serif text-lg font-semibold">Dữ liệu chúng tôi lưu</h2>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Email và mật khẩu (băm bởi hệ thống đăng nhập), biệt danh, múi giờ.</li>
+        <li>Email, mật khẩu (chỉ lưu dạng băm một chiều, không ai đọc được), biệt danh, múi giờ.</li>
         <li>Bài viết, bình luận, lượt đồng cảm, lịch tu tập, nhật ký và các cuộc trò chuyện AI của bạn.</li>
         <li>Số lượt dùng mỗi ngày để áp dụng giới hạn miễn phí. Khách chưa đăng ký chỉ lưu mã băm một chiều để giới hạn lượt thử.</li>
       </ul>

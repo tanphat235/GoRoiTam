@@ -1,46 +1,59 @@
 import Link from "next/link";
-import { PageTitle, SetupNotice } from "@/components/ui";
-import { isSupabaseConfigured } from "@/lib/supabase/server";
-import { getSession } from "@/modules/auth/session";
+import { and, asc, desc, eq } from "drizzle-orm";
+import { MessageSquarePlus } from "lucide-react";
+import { z } from "zod";
+import { PageHeader, SetupNotice } from "@/components/ui";
 import type { Source } from "@/modules/ai/format";
+import { getCurrentUser } from "@/server/auth/session";
+import { getDb, schema } from "@/server/db";
+import { LIMITS, usageToday } from "@/server/quota";
 import { ChatClient } from "./chat-client";
 
 export const metadata = { title: "Hỏi Gỡ Rối Tâm" };
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ q?: string; c?: string }> }) {
   const sp = await searchParams;
-  const { supabase, user, profile } = await getSession();
-  if (user && !profile) return <p>Hãy <Link href="/chon-biet-danh" className="underline">chọn biệt danh</Link> trước.</p>;
+  if (!process.env.DATABASE_URL) return <SetupNotice />;
+  const user = await getCurrentUser();
+  const member = user?.emailVerified && user.nickname ? user : null;
+  const convId = sp.c && z.string().uuid().safeParse(sp.c).success ? sp.c : null;
 
   let initial: { role: "user" | "assistant"; content: string; sources?: Source[] }[] = [];
   let conversations: { id: string; title: string }[] = [];
-  let used = 0;
+  let sub = "Dùng thử 1 lượt không cần đăng ký. Cuộc trò chuyện của thành viên được lưu riêng tư.";
 
-  if (supabase && user) {
-    const { data: convs } = await supabase.from("ai_conversations").select("id, title").order("created_at", { ascending: false }).limit(8);
-    conversations = convs ?? [];
-    if (sp.c) {
-      const { data: rows } = await supabase.from("ai_messages").select("role, content, sources").eq("conversation_id", sp.c).order("created_at");
-      initial = (rows ?? []) as typeof initial;
+  if (member) {
+    const db = await getDb();
+    const c = schema.aiConversations;
+    const m = schema.aiMessages;
+    conversations = await db.select({ id: c.id, title: c.title }).from(c).where(eq(c.userId, member.id)).orderBy(desc(c.createdAt)).limit(12);
+    if (convId) {
+      initial = (await db.select({ role: m.role, content: m.content, sources: m.sources }).from(m)
+        .innerJoin(c, eq(c.id, m.conversationId))
+        .where(and(eq(c.id, convId), eq(c.userId, member.id))).orderBy(asc(m.createdAt))) as typeof initial;
     }
-    const { data: u } = await supabase.from("usage_daily").select("ai_count").eq("day", new Date().toISOString().slice(0, 10)).maybeSingle();
-    used = u?.ai_count ?? 0;
+    const used = await usageToday(member.id);
+    sub = `Hôm nay bạn đã hỏi ${used.ai}/${LIMITS[member.plan].ai} lượt. Cuộc trò chuyện là riêng tư.`;
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <PageTitle title="Hỏi Gỡ Rối Tâm" sub={user ? `Hôm nay bạn đã hỏi ${used}/${profile?.plan === "premium" ? 30 : 2} lượt. Cuộc trò chuyện là riêng tư.` : "Dùng thử 1 lượt không cần đăng ký."} />
-      {!isSupabaseConfigured() && <SetupNotice />}
-      {conversations.length > 0 && (
-        <nav aria-label="Lịch sử" className="mb-4 flex flex-wrap gap-2 text-xs">
-          <Link href="/hoi" className="rounded-full border border-border bg-surface px-3 py-1">+ Mới</Link>
-          {conversations.map((c) => (
-            <Link key={c.id} href={`/hoi?c=${c.id}`} className="max-w-48 truncate rounded-full border border-border bg-surface px-3 py-1">{c.title}</Link>
-          ))}
-        </nav>
-      )}
-      <ChatClient key={sp.c ?? "new"} initial={initial} conversationId={sp.c ?? null} initialQuery={sp.c ? "" : (sp.q ?? "").slice(0, 2000)} loggedIn={Boolean(user)} />
-      <p className="mt-4 text-xs text-muted">AI có thể sai. Đây không phải lời khuyên y tế hay pháp lý và không thay thế thầy hoặc chuyên gia.</p>
+    <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+      <aside className="order-2 lg:order-1">
+        {member && (
+          <nav aria-label="Lịch sử trò chuyện" className="fade-up space-y-1 lg:sticky lg:top-24">
+            <Link href="/hoi" className="mb-2 flex items-center gap-2 rounded-2xl bg-primary-soft px-3 py-2.5 text-sm font-medium text-primary"><MessageSquarePlus size={16} aria-hidden /> Cuộc trò chuyện mới</Link>
+            {conversations.map((c) => (
+              <Link key={c.id} href={`/hoi?c=${c.id}`} aria-current={c.id === convId ? "page" : undefined}
+                className={`block truncate rounded-xl px-3 py-2 text-sm ${c.id === convId ? "bg-surface font-medium shadow-soft" : "text-muted hover:bg-surface"}`}>{c.title}</Link>
+            ))}
+          </nav>
+        )}
+      </aside>
+      <div className="order-1 min-w-0 lg:order-2">
+        <PageHeader eyebrow="Lắng nghe · Phân tích · Định hướng" title="Hỏi Gỡ Rối Tâm" sub={sub} />
+        <ChatClient key={convId ?? "new"} initial={initial} conversationId={convId} initialQuery={convId ? "" : (sp.q ?? "").slice(0, 2000)} loggedIn={Boolean(member)} />
+        <p className="mt-4 text-center text-xs text-muted">AI có thể sai. Đây không phải lời khuyên y tế hay pháp lý và không thay thế thầy hoặc chuyên gia.</p>
+      </div>
     </div>
   );
 }

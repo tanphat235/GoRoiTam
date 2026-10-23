@@ -1,83 +1,124 @@
 "use server";
 
+import { and, eq, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireProfile } from "@/modules/auth/session";
-import { TOPICS } from "./topics";
+import { requireMember } from "@/server/auth/session";
+import { getDb, schema } from "@/server/db";
+import { consumeQuota, refundQuota } from "@/server/quota";
+import { rateLimit } from "@/server/rate-limit";
+import { KINDS, TOPICS } from "./topics";
+
+const Id = z.string().uuid();
+const fail = (path: string, msg: string): never => redirect(`${path}${path.includes("?") ? "&" : "?"}error=${encodeURIComponent(msg)}`);
 
 const PostInput = z.object({
-  body: z.string().trim().min(1).max(3000),
+  title: z.string().trim().min(3).max(120),
+  body: z.string().trim().min(1).max(5000),
+  kind: z.enum(Object.keys(KINDS) as [keyof typeof KINDS]),
   topic: z.enum(Object.keys(TOPICS) as [keyof typeof TOPICS]),
   anonymous: z.boolean(),
 });
 
 export async function createPost(formData: FormData) {
-  const { supabase } = await requireProfile();
+  const user = await requireMember();
   const parsed = PostInput.safeParse({
+    title: formData.get("title"),
     body: formData.get("body"),
+    kind: formData.get("kind") || "share",
     topic: formData.get("topic") || "khac",
     anonymous: formData.get("anonymous") === "on",
   });
-  if (!parsed.success) redirect("/cong-dong?error=" + encodeURIComponent("Nội dung chưa hợp lệ (1-3000 ký tự)."));
-  const { data, error } = await supabase.rpc("create_post", {
-    p_body: parsed.data.body,
-    p_topic: parsed.data.topic,
-    p_anonymous: parsed.data.anonymous,
-  });
-  if (error) {
-    const msg = error.message.includes("quota_exceeded")
-      ? "Bạn đã đăng đủ số bài hôm nay. Mai quay lại nhé."
-      : error.message.includes("duplicate")
-        ? "Bạn vừa đăng nội dung này rồi."
-        : "Không thể đăng bài lúc này.";
-    redirect("/cong-dong?error=" + encodeURIComponent(msg));
+  if (!parsed.success) fail("/cong-dong/viet", "Tiêu đề 3-120 ký tự, nội dung 1-5000 ký tự.");
+  const db = await getDb();
+  const p = schema.posts;
+  const [dupe] = await db.select({ id: p.id }).from(p)
+    .where(and(eq(p.authorId, user.id), eq(p.body, parsed.data!.body), gt(p.createdAt, new Date(Date.now() - 86_400_000))));
+  if (dupe) fail("/cong-dong/viet", "Bạn vừa đăng nội dung này rồi.");
+  if (!(await consumeQuota(user.id, user.plan, "post"))) fail("/cong-dong/viet", "Bạn đã đăng đủ số bài hôm nay. Mai quay lại nhé.");
+  let id: string;
+  try {
+    const { anonymous, ...rest } = parsed.data!;
+    [{ id }] = await db.insert(p).values({ ...rest, isAnonymous: anonymous, authorId: user.id }).returning({ id: p.id });
+  } catch (e) {
+    await refundQuota(user.id, "post");
+    throw e;
   }
   revalidatePath("/cong-dong");
-  redirect(`/cong-dong/${data}`);
+  redirect(`/cong-dong/${id}`);
 }
 
 export async function toggleReaction(formData: FormData) {
-  const { supabase, user } = await requireProfile();
-  const postId = z.string().uuid().parse(formData.get("postId"));
-  const { data: existing } = await supabase.from("post_reactions").select("post_id").eq("post_id", postId).eq("user_id", user.id).maybeSingle();
-  if (existing) await supabase.from("post_reactions").delete().eq("post_id", postId).eq("user_id", user.id);
-  else await supabase.from("post_reactions").insert({ post_id: postId, user_id: user.id });
+  const user = await requireMember();
+  const postId = Id.parse(formData.get("postId"));
+  const db = await getDb();
+  const r = schema.postReactions;
+  const removed = await db.delete(r).where(and(eq(r.postId, postId), eq(r.userId, user.id))).returning({ p: r.postId });
+  if (removed.length === 0) {
+    const [post] = await db.select({ id: schema.posts.id }).from(schema.posts).where(and(eq(schema.posts.id, postId), eq(schema.posts.status, "visible")));
+    if (post) await db.insert(r).values({ postId, userId: user.id }).onConflictDoNothing();
+  }
   revalidatePath("/cong-dong");
   revalidatePath(`/cong-dong/${postId}`);
 }
 
 export async function addComment(formData: FormData) {
-  const { supabase, user } = await requireProfile();
-  const postId = z.string().uuid().parse(formData.get("postId"));
+  const user = await requireMember();
+  const postId = Id.parse(formData.get("postId"));
+  const path = `/cong-dong/${postId}`;
   const body = z.string().trim().min(1).max(1500).safeParse(formData.get("body"));
-  if (!body.success) redirect(`/cong-dong/${postId}?error=` + encodeURIComponent("Bình luận 1-1500 ký tự."));
-  const { error } = await supabase.from("comments").insert({ post_id: postId, author_id: user.id, body: body.data! });
-  if (error) redirect(`/cong-dong/${postId}?error=` + encodeURIComponent("Không thể bình luận."));
-  revalidatePath(`/cong-dong/${postId}`);
-  redirect(`/cong-dong/${postId}`);
+  if (!body.success) fail(path, "Bình luận 1-1500 ký tự.");
+  if (!(await rateLimit(`comment:${user.id}`, 20, 3600))) fail(path, "Bạn bình luận quá nhanh. Hãy nghỉ một chút.");
+  const db = await getDb();
+  const [post] = await db.select({ id: schema.posts.id }).from(schema.posts).where(and(eq(schema.posts.id, postId), eq(schema.posts.status, "visible")));
+  if (!post) fail("/cong-dong", "Bài viết không còn tồn tại.");
+  await db.insert(schema.comments).values({ postId, authorId: user.id, body: body.data! });
+  revalidatePath(path);
+  redirect(`${path}#binh-luan`);
 }
 
-export async function reportContent(formData: FormData) {
-  const { supabase, user } = await requireProfile();
-  const postId = z.string().uuid().parse(formData.get("postId"));
-  const commentId = formData.get("commentId") ? z.string().uuid().parse(formData.get("commentId")) : null;
-  const reason = z.string().trim().min(1).max(500).safeParse(formData.get("reason"));
-  if (!reason.success) redirect(`/cong-dong/${postId}?error=` + encodeURIComponent("Hãy ghi lý do báo cáo."));
-  const { error } = await supabase.from("post_reports").insert({
-    post_id: commentId ? null : postId,
-    comment_id: commentId,
-    reporter_id: user.id,
-    reason: reason.data!,
-  });
-  const msg = error ? (error.code === "23505" ? "Bạn đã báo cáo mục này rồi." : "Không thể gửi báo cáo.") : "Cảm ơn bạn, báo cáo đã được gửi.";
-  redirect(`/cong-dong/${postId}?${error ? "error" : "ok"}=` + encodeURIComponent(msg));
+const AUTO_HIDE_AT = 3;
+
+export async function report(formData: FormData) {
+  const user = await requireMember();
+  const postId = Id.parse(formData.get("postId"));
+  const commentId = formData.get("commentId") ? Id.parse(formData.get("commentId")) : null;
+  const path = `/cong-dong/${postId}`;
+  const reason = z.string().trim().min(3).max(500).safeParse(formData.get("reason"));
+  if (!reason.success) fail(path, "Hãy ghi lý do báo cáo (ít nhất 3 ký tự).");
+  const db = await getDb();
+  const r = schema.reports;
+  const inserted = await db.insert(r)
+    .values({ postId: commentId ? null : postId, commentId, reporterId: user.id, reason: reason.data! })
+    .onConflictDoNothing()
+    .returning({ id: r.id });
+  if (inserted.length === 0) fail(path, "Bạn đã báo cáo mục này rồi.");
+
+  // Several independent reports hide the content until a moderator reviews it.
+  const target = commentId ? eq(r.commentId, commentId) : eq(r.postId, postId);
+  const open = await db.select({ id: r.id }).from(r).where(and(target, eq(r.status, "open")));
+  if (open.length >= AUTO_HIDE_AT) {
+    if (commentId) await db.update(schema.comments).set({ status: "hidden" }).where(eq(schema.comments.id, commentId));
+    else await db.update(schema.posts).set({ status: "hidden" }).where(eq(schema.posts.id, postId));
+  }
+  redirect(`${path}?ok=${encodeURIComponent("Cảm ơn bạn, báo cáo đã được gửi tới đội ngũ kiểm duyệt.")}`);
 }
 
 export async function deleteOwnPost(formData: FormData) {
-  const { supabase } = await requireProfile();
-  const postId = z.string().uuid().parse(formData.get("postId"));
-  await supabase.from("posts").delete().eq("id", postId);
+  const user = await requireMember();
+  const postId = Id.parse(formData.get("postId"));
+  const db = await getDb();
+  await db.delete(schema.posts).where(and(eq(schema.posts.id, postId), eq(schema.posts.authorId, user.id)));
   revalidatePath("/cong-dong");
   redirect("/cong-dong");
+}
+
+export async function deleteOwnComment(formData: FormData) {
+  const user = await requireMember();
+  const postId = Id.parse(formData.get("postId"));
+  const commentId = Id.parse(formData.get("commentId"));
+  const db = await getDb();
+  await db.delete(schema.comments).where(and(eq(schema.comments.id, commentId), eq(schema.comments.authorId, user.id)));
+  revalidatePath(`/cong-dong/${postId}`);
 }

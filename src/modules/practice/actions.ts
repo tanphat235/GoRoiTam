@@ -1,68 +1,96 @@
 "use server";
 
+import { and, eq, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireProfile } from "@/modules/auth/session";
-import { dayInTz, parseItems, type Item } from "./logic";
+import { requireMember } from "@/server/auth/session";
+import { getDb, schema } from "@/server/db";
+import { dayInTz, isIsoDay, parseItems } from "./logic";
 
 const Id = z.string().uuid();
 const Title = z.string().trim().min(1).max(80);
+const fail = (path: string, msg: string): never => redirect(`${path}?error=${encodeURIComponent(msg)}`);
+const MAX_SCHEDULES = 6;
 
-export async function createFromTemplate(formData: FormData) {
-  const { supabase, user } = await requireProfile();
-  const id = Id.parse(formData.get("templateId"));
-  const { data: t } = await supabase.from("practice_templates").select("name, items").eq("id", id).single();
-  if (!t) redirect("/lich-tu-tap?error=" + encodeURIComponent("Không tìm thấy lịch mẫu."));
-  await supabase.from("practice_schedules").insert({ user_id: user.id, title: t!.name, items: t!.items });
+async function countSchedules(userId: string) {
+  const db = await getDb();
+  return (await db.select({ id: schema.practiceSchedules.id }).from(schema.practiceSchedules).where(eq(schema.practiceSchedules.userId, userId))).length;
+}
+
+export async function addFromTemplate(formData: FormData) {
+  const user = await requireMember();
+  const db = await getDb();
+  const [t] = await db.select().from(schema.practiceTemplates).where(eq(schema.practiceTemplates.id, Id.parse(formData.get("templateId"))));
+  if (!t) fail("/lich-tu-tap", "Không tìm thấy lịch mẫu.");
+  if ((await countSchedules(user.id)) >= MAX_SCHEDULES) fail("/lich-tu-tap", `Tối đa ${MAX_SCHEDULES} lịch.`);
+  await db.insert(schema.practiceSchedules).values({ userId: user.id, title: t!.name, items: t!.items });
   revalidatePath("/lich-tu-tap");
   redirect("/lich-tu-tap");
 }
 
 export async function saveSchedule(formData: FormData) {
-  const { supabase } = await requireProfile();
-  const id = Id.parse(formData.get("id"));
+  const user = await requireMember();
+  const id = formData.get("id") ? Id.parse(formData.get("id")) : null;
   const title = Title.safeParse(formData.get("title"));
-  const items: Item[] = parseItems(String(formData.get("items") ?? ""));
-  if (!title.success || items.length === 0) {
-    redirect("/lich-tu-tap?error=" + encodeURIComponent("Cần tên lịch và ít nhất một dòng dạng “06:00 Thiền 15 phút”."));
+  const items = parseItems(String(formData.get("items") ?? ""));
+  if (!title.success || items.length === 0) fail("/lich-tu-tap", "Cần tên lịch và ít nhất một dòng dạng “06:00 Thiền buổi sáng | 15”.");
+  const db = await getDb();
+  const s = schema.practiceSchedules;
+  if (id) {
+    await db.update(s).set({ title: title.data!, items }).where(and(eq(s.id, id), eq(s.userId, user.id)));
+  } else {
+    if ((await countSchedules(user.id)) >= MAX_SCHEDULES) fail("/lich-tu-tap", `Tối đa ${MAX_SCHEDULES} lịch.`);
+    await db.insert(s).values({ userId: user.id, title: title.data!, items });
   }
-  await supabase.from("practice_schedules").update({ title: title.data!, items }).eq("id", id);
   revalidatePath("/lich-tu-tap");
   redirect("/lich-tu-tap");
 }
 
 export async function deleteSchedule(formData: FormData) {
-  const { supabase } = await requireProfile();
-  await supabase.from("practice_schedules").delete().eq("id", Id.parse(formData.get("id")));
+  const user = await requireMember();
+  const db = await getDb();
+  const s = schema.practiceSchedules;
+  await db.delete(s).where(and(eq(s.id, Id.parse(formData.get("id"))), eq(s.userId, user.id)));
   revalidatePath("/lich-tu-tap");
 }
 
+/** Toggle an item for a day. Only today and past days can be marked. */
 export async function toggleLog(formData: FormData) {
-  const { supabase, user, profile } = await requireProfile();
+  const user = await requireMember();
   const scheduleId = Id.parse(formData.get("scheduleId"));
   const key = z.string().min(1).max(20).parse(formData.get("key"));
-  const day = dayInTz(profile.timezone);
-  const { data: existing } = await supabase
-    .from("practice_logs").select("id").eq("schedule_id", scheduleId).eq("day", day).eq("item_key", key).maybeSingle();
-  if (existing) await supabase.from("practice_logs").delete().eq("id", existing.id);
-  else await supabase.from("practice_logs").insert({ user_id: user.id, schedule_id: scheduleId, day, item_key: key });
+  const today = dayInTz(user.timezone);
+  const raw = String(formData.get("day") ?? "");
+  const day = isIsoDay(raw) && raw <= today ? raw : today;
+  const db = await getDb();
+  const s = schema.practiceSchedules;
+  const [owned] = await db.select({ id: s.id }).from(s).where(and(eq(s.id, scheduleId), eq(s.userId, user.id)));
+  if (!owned) return;
+  const l = schema.practiceLogs;
+  const removed = await db.delete(l)
+    .where(and(eq(l.userId, user.id), eq(l.scheduleId, scheduleId), eq(l.day, day), eq(l.itemKey, key), lte(l.day, today)))
+    .returning({ id: l.id });
+  if (removed.length === 0) await db.insert(l).values({ userId: user.id, scheduleId, day, itemKey: key }).onConflictDoNothing();
   revalidatePath("/lich-tu-tap");
 }
 
 export async function addJournal(formData: FormData) {
-  const { supabase, user } = await requireProfile();
+  const user = await requireMember();
   const parsed = z
     .object({ mood: z.coerce.number().int().min(1).max(5), text: z.string().trim().min(1).max(3000) })
     .safeParse({ mood: formData.get("mood"), text: formData.get("text") });
-  if (!parsed.success) redirect("/nhat-ky?error=" + encodeURIComponent("Hãy chọn tâm trạng và viết vài dòng."));
-  await supabase.from("journal_entries").insert({ user_id: user.id, ...parsed.data! });
+  if (!parsed.success) fail("/nhat-ky", "Hãy chọn tâm trạng và viết vài dòng.");
+  const db = await getDb();
+  await db.insert(schema.journalEntries).values({ userId: user.id, ...parsed.data! });
   revalidatePath("/nhat-ky");
   redirect("/nhat-ky");
 }
 
 export async function deleteJournal(formData: FormData) {
-  const { supabase } = await requireProfile();
-  await supabase.from("journal_entries").delete().eq("id", Id.parse(formData.get("id")));
+  const user = await requireMember();
+  const db = await getDb();
+  const j = schema.journalEntries;
+  await db.delete(j).where(and(eq(j.id, Id.parse(formData.get("id"))), eq(j.userId, user.id)));
   revalidatePath("/nhat-ky");
 }

@@ -1,46 +1,58 @@
-import { Button, Card, Notice, PageTitle, inputClass } from "@/components/ui";
-import { requireProfile } from "@/modules/auth/session";
+import { Lock } from "lucide-react";
+import { Button, Card, EmptyState, Notice, PageHeader, TextArea } from "@/components/ui";
 import { addJournal, deleteJournal } from "@/modules/practice/actions";
+import { MOODS } from "@/modules/practice/moods";
+import { listJournal } from "@/modules/practice/queries";
+import { requireMember } from "@/server/auth/session";
 
-export const metadata = { title: "Nhật ký" };
-
-const MOODS = ["😞 Rất nặng", "😕 Nặng", "😐 Bình thường", "🙂 Nhẹ nhàng", "😊 An vui"];
+export const metadata = { title: "Nhật ký tâm" };
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const sp = await searchParams;
-  const { supabase } = await requireProfile();
-  const { data } = await supabase.from("journal_entries").select("id, mood, text, created_at").order("created_at", { ascending: false }).limit(50);
+  const user = await requireMember("/nhat-ky");
+  const entries = await listJournal(user.id);
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
-      <PageTitle title="Nhật ký tâm trạng" sub="Chỉ mình bạn thấy. Ghi lại điều đã nhận ra hôm nay." />
+    <div className="mx-auto max-w-3xl space-y-6">
+      <PageHeader eyebrow="Ghi lại · Nhìn lại · Chuyển hóa" title="Nhật ký tâm" sub="Chỉ mình bạn thấy những gì viết ở đây." />
       {sp.error && <Notice kind="error">{sp.error}</Notice>}
-      <Card>
-        <form action={addJournal} className="space-y-3">
-          <fieldset className="flex flex-wrap gap-2">
-            <legend className="mb-1 text-sm">Tâm trạng của bạn</legend>
-            {MOODS.map((m, i) => (
-              <label key={m} className="cursor-pointer rounded-full border border-border bg-surface px-3 py-1 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
-                <input type="radio" name="mood" value={i + 1} required className="sr-only" /> {m}
-              </label>
-            ))}
+      <Card className="fade-up delay-1">
+        <form action={addJournal} className="space-y-4">
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">Hôm nay tâm bạn thế nào?</legend>
+            <div className="grid grid-cols-5 gap-2">
+              {MOODS.map((m, i) => (
+                <label key={m.label} className="flex cursor-pointer flex-col items-center gap-1 rounded-2xl border border-border p-2.5 text-xs transition-all hover:border-sage has-[:checked]:scale-105 has-[:checked]:border-primary has-[:checked]:bg-primary-soft">
+                  <input type="radio" name="mood" value={i + 1} required className="sr-only" />
+                  <span className="text-2xl" aria-hidden>{m.emoji}</span>{m.label}
+                </label>
+              ))}
+            </div>
           </fieldset>
-          <textarea name="text" rows={3} maxLength={3000} required placeholder="Hôm nay mình nhận ra..." className={inputClass} aria-label="Nội dung nhật ký" />
-          <Button>Lưu</Button>
+          <TextArea name="text" rows={4} maxLength={3000} required placeholder="Hôm nay mình nhận ra…" aria-label="Nội dung nhật ký" />
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs text-muted"><Lock size={13} aria-hidden /> Riêng tư</span>
+            <Button>Lưu nhật ký</Button>
+          </div>
         </form>
       </Card>
-      <ul className="space-y-3">
-        {(data ?? []).map((e) => (
-          <li key={e.id}>
-            <Card>
-              <div className="mb-1 flex items-center justify-between text-xs text-muted">
-                <span>{MOODS[e.mood - 1]} · {new Date(e.created_at).toLocaleString("vi-VN")}</span>
-                <form action={deleteJournal}><input type="hidden" name="id" value={e.id} /><button className="underline">Xóa</button></form>
-              </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{e.text}</p>
-            </Card>
-          </li>
-        ))}
-      </ul>
+      {entries.length === 0 ? (
+        <EmptyState title="Trang nhật ký còn trống">Viết vài dòng mỗi ngày giúp bạn thấy rõ tâm mình thay đổi ra sao.</EmptyState>
+      ) : (
+        <ol className="relative space-y-4 border-l-2 border-border pl-6">
+          {entries.map((e, i) => (
+            <li key={e.id} className={`fade-up delay-${Math.min(i, 5)} relative`}>
+              <span className="absolute -left-[34px] top-4 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-surface text-sm" aria-hidden>{MOODS[e.mood - 1]?.emoji}</span>
+              <Card className="!p-4">
+                <div className="mb-1 flex items-center justify-between text-xs text-muted">
+                  <span>{MOODS[e.mood - 1]?.label} · {e.createdAt.toLocaleString("vi-VN", { timeZone: user.timezone })}</span>
+                  <form action={deleteJournal}><input type="hidden" name="id" value={e.id} /><button className="hover:text-warn">Xóa</button></form>
+                </div>
+                <p className="whitespace-pre-line text-sm leading-relaxed">{e.text}</p>
+              </Card>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

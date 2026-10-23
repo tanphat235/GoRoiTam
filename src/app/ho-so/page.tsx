@@ -1,44 +1,104 @@
-import { Button, Card, Notice, PageTitle, inputClass } from "@/components/ui";
-import { deleteAccount, updateProfile } from "@/modules/auth/actions";
-import { requireProfile } from "@/modules/auth/session";
+import Link from "next/link";
+import { count, eq } from "drizzle-orm";
+import { Settings } from "lucide-react";
+import { PostCard } from "@/components/post-card";
+import { Landscape } from "@/components/scenery";
+import { Avatar, Badge, Card, Chip, EmptyState, LinkButton } from "@/components/ui";
+import { listMyPosts } from "@/modules/community/queries";
+import { dayInTz } from "@/modules/practice/logic";
+import { MOODS } from "@/modules/practice/moods";
+import { listJournal, practiceOverview } from "@/modules/practice/queries";
+import { requireMember } from "@/server/auth/session";
+import { getDb, schema } from "@/server/db";
 
-export const metadata = { title: "Hồ sơ" };
+export const metadata = { title: "Trang cá nhân" };
 
-export default async function Page({ searchParams }: { searchParams: Promise<{ error?: string; ok?: string }> }) {
+const TABS = [
+  { key: "bai-viet", label: "Bài viết" },
+  { key: "nhat-ky", label: "Nhật ký" },
+  { key: "lich", label: "Lịch tu tập" },
+];
+
+export default async function Page({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const sp = await searchParams;
-  const { supabase, user, profile } = await requireProfile();
-  const { data: usage } = await supabase.from("usage_daily").select("ai_count, post_count").eq("day", new Date().toISOString().slice(0, 10)).maybeSingle();
-  const premium = profile.plan === "premium";
+  const user = await requireMember("/ho-so");
+  const tab = TABS.find((t) => t.key === sp.tab)?.key ?? "bai-viet";
+  const today = dayInTz(user.timezone);
+  const db = await getDb();
+  const [posts, journal, practice, [{ n: journalCount }]] = await Promise.all([
+    listMyPosts(user.id),
+    listJournal(user.id, 10),
+    practiceOverview(user.id, today, new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10)),
+    db.select({ n: count() }).from(schema.journalEntries).where(eq(schema.journalEntries.userId, user.id)),
+  ]);
+  const practicedDays = new Set(practice.logs.map((l) => l.day)).size;
+
   return (
-    <div className="mx-auto max-w-lg space-y-5">
-      <PageTitle title="Hồ sơ & quyền riêng tư" />
-      {sp.error && <Notice kind="error">{sp.error}</Notice>}
-      {sp.ok && <Notice kind="ok">Đã lưu.</Notice>}
+    <div className="space-y-6">
+      <section className="fade-up overflow-hidden rounded-[2rem] border border-border bg-surface shadow-soft">
+        <div className="relative h-36 sm:h-48"><Landscape idp="cover" className="absolute inset-0 h-full w-full" /></div>
+        <div className="px-6 pb-6 sm:px-8">
+          <div className="-mt-12 flex flex-wrap items-end justify-between gap-4">
+            <span className="relative z-10 rounded-full border-4 border-surface shadow-soft"><Avatar name={user.nickname} size={92} /></span>
+            <LinkButton href="/ho-so/cai-dat" variant="ghost" size="sm"><Settings size={15} aria-hidden /> Cài đặt</LinkButton>
+          </div>
+          <h1 className="mt-3 font-serif text-2xl font-semibold">{user.nickname}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+            <Badge>{user.role === "admin" ? "Quản trị viên" : user.role === "moderator" ? "Kiểm duyệt viên" : "Thành viên"}</Badge>
+            <span>Tham gia {user.createdAt.toLocaleDateString("vi-VN")}</span>
+          </div>
+          <p className="mt-3 max-w-xl font-serif italic text-muted">{user.bio || "“Tu không phải để thoát khỏi thế gian, mà để sống an nhiên giữa thế gian.”"}</p>
+          <dl className="mt-5 grid max-w-md grid-cols-3 gap-2 text-center">
+            {[["Bài viết", posts.length], ["Ngày tu tập", practicedDays], ["Nhật ký", journalCount]].map(([label, v]) => (
+              <div key={label as string} className="rounded-2xl bg-surface-2 py-3">
+                <dd className="font-serif text-2xl font-semibold">{v}</dd>
+                <dt className="text-xs text-muted">{label}</dt>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
 
-      <Card className="space-y-3">
-        <p className="text-sm text-muted">Email: {user.email}</p>
-        <form action={updateProfile} className="flex gap-2">
-          <label htmlFor="nn" className="sr-only">Biệt danh</label>
-          <input id="nn" name="nickname" defaultValue={profile.nickname} minLength={3} maxLength={24} required className={inputClass} />
-          <Button>Lưu</Button>
-        </form>
-      </Card>
+      <nav aria-label="Nội dung hồ sơ" className="flex gap-2">
+        {TABS.map((t) => <Chip key={t.key} href={`/ho-so?tab=${t.key}`} active={t.key === tab}>{t.label}</Chip>)}
+      </nav>
 
-      <Card>
-        <h2 className="font-serif font-semibold">Hôm nay</h2>
-        <p className="mt-1 text-sm">Hỏi AI: {usage?.ai_count ?? 0}/{premium ? 30 : 2} · Bài đăng: {usage?.post_count ?? 0}/{premium ? 10 : 2}</p>
-        <p className="mt-1 text-xs text-muted">Gói hiện tại: {premium ? "Premium" : "Miễn phí"}. Hạn mức làm mới mỗi ngày (giờ UTC).</p>
-      </Card>
+      {tab === "bai-viet" && (posts.length === 0
+        ? <EmptyState title="Bạn chưa có bài viết nào"><Link href="/cong-dong/viet" className="text-primary underline">Viết bài đầu tiên</Link></EmptyState>
+        : <div className="grid gap-4 md:grid-cols-2">
+            {posts.map((p, i) => (
+              <div key={p.id} className="space-y-1.5">
+                {(p.status === "hidden" || p.isAnonymous) && (
+                  <p className={`px-2 text-xs ${p.status === "hidden" ? "text-warn" : "text-muted"}`}>
+                    {p.status === "hidden" ? "Đang bị ẩn, chờ kiểm duyệt" : "Đăng ẩn danh · chỉ bạn biết đây là bài của bạn"}
+                  </p>
+                )}
+                <PostCard post={p} canReact delay={i} />
+              </div>
+            ))}
+          </div>)}
 
-      <Card className="space-y-2">
-        <h2 className="font-serif font-semibold">Xóa tài khoản và toàn bộ dữ liệu</h2>
-        <p className="text-sm text-muted">Xóa vĩnh viễn bài viết, bình luận, cuộc trò chuyện AI, lịch tu tập và nhật ký của bạn. Không thể hoàn tác.</p>
-        <form action={deleteAccount} className="flex gap-2">
-          <label htmlFor="cf" className="sr-only">Gõ XOA để xác nhận</label>
-          <input id="cf" name="confirm" placeholder="Gõ XOA để xác nhận" required className={inputClass} autoComplete="off" />
-          <Button variant="danger">Xóa</Button>
-        </form>
-      </Card>
+      {tab === "nhat-ky" && (journal.length === 0
+        ? <EmptyState title="Chưa có nhật ký"><Link href="/nhat-ky" className="text-primary underline">Viết nhật ký</Link></EmptyState>
+        : <div className="grid gap-3 md:grid-cols-2">
+            {journal.map((e) => (
+              <Card key={e.id} className="!p-4">
+                <p className="mb-1 text-xs text-muted">{MOODS[e.mood - 1]?.emoji} {MOODS[e.mood - 1]?.label} · {e.createdAt.toLocaleDateString("vi-VN")}</p>
+                <p className="line-clamp-4 whitespace-pre-line text-sm">{e.text}</p>
+              </Card>
+            ))}
+          </div>)}
+
+      {tab === "lich" && (practice.schedules.length === 0
+        ? <EmptyState title="Chưa có lịch tu tập"><Link href="/lich-tu-tap" className="text-primary underline">Lập lịch</Link></EmptyState>
+        : <div className="grid gap-3 md:grid-cols-2">
+            {practice.schedules.map((s) => (
+              <Card key={s.id} className="!p-4">
+                <p className="font-medium">{s.title}</p>
+                <ul className="mt-2 space-y-1 text-sm text-muted">{s.items.map((it) => <li key={it.key}>{it.time} · {it.label}</li>)}</ul>
+              </Card>
+            ))}
+          </div>)}
     </div>
   );
 }

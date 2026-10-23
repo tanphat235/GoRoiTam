@@ -1,11 +1,11 @@
-import { PageTitle } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Điều khoản" };
 
 export default function Page() {
   return (
     <article className="mx-auto max-w-2xl space-y-4 text-sm leading-relaxed">
-      <PageTitle title="Điều khoản sử dụng" sub="Bản nháp cho giai đoạn beta — cần rà soát pháp lý trước khi ra công khai." />
+      <PageHeader title="Điều khoản sử dụng" sub="Bản nháp cho giai đoạn beta — cần rà soát pháp lý trước khi ra công khai." />
       <ul className="list-disc space-y-2 pl-5">
         <li>Gỡ Rối Tâm là công cụ hỗ trợ tinh thần theo góc nhìn Phật giáo, không phải dịch vụ y tế, tâm lý hay pháp lý.</li>
         <li>AI có thể sai hoặc diễn giải chưa đầy đủ. Hãy tham khảo thầy hoặc chuyên gia khi cần.</li>

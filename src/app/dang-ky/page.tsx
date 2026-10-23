@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Button, Card, Notice, PageTitle, SetupNotice, inputClass } from "@/components/ui";
-import { isSupabaseConfigured } from "@/lib/supabase/server";
+import { AuthFrame } from "@/components/auth-frame";
+import { Button, Field, Notice } from "@/components/ui";
 import { signUp } from "@/modules/auth/actions";
 
 export const metadata = { title: "Đăng ký" };
@@ -8,18 +8,21 @@ export const metadata = { title: "Đăng ký" };
 export default async function Page({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   return (
-    <div className="mx-auto max-w-sm">
-      <PageTitle title="Đăng ký miễn phí" sub="Email chỉ dùng để đăng nhập. Cộng đồng chỉ thấy biệt danh của bạn." />
-      {!isSupabaseConfigured() && <SetupNotice />}
+    <AuthFrame
+      title="Bắt đầu hành trình"
+      sub="Miễn phí. Email chỉ dùng để đăng nhập; cộng đồng chỉ thấy biệt danh của bạn."
+      footer={<>Đã có tài khoản? <Link href="/dang-nhap" className="font-medium text-primary underline-offset-4 hover:underline">Đăng nhập</Link></>}
+    >
       {error && <Notice kind="error">{error}</Notice>}
-      <Card>
-        <form action={signUp} className="space-y-3">
-          <label className="block text-sm">Email<input name="email" type="email" required autoComplete="email" className={`${inputClass} mt-1`} /></label>
-          <label className="block text-sm">Mật khẩu (tối thiểu 8 ký tự)<input name="password" type="password" required minLength={8} maxLength={72} autoComplete="new-password" className={`${inputClass} mt-1`} /></label>
-          <Button className="w-full">Tạo tài khoản</Button>
-        </form>
-      </Card>
-      <p className="mt-3 text-sm text-muted">Đã có tài khoản? <Link href="/dang-nhap" className="text-primary-hover underline">Đăng nhập</Link></p>
-    </div>
+      <form action={signUp} className="space-y-4">
+        <Field label="Email" name="email" type="email" required autoComplete="email" />
+        <Field label="Mật khẩu" name="password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" hint="Tối thiểu 8 ký tự." />
+        <Button size="lg" className="w-full">Tạo tài khoản</Button>
+        <p className="text-xs text-muted">
+          Khi đăng ký, bạn đồng ý với <Link href="/dieu-khoan" className="underline">Điều khoản</Link> và{" "}
+          <Link href="/quyen-rieng-tu" className="underline">Chính sách quyền riêng tư</Link>.
+        </p>
+      </form>
+    </AuthFrame>
   );
 }
