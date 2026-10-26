@@ -14,6 +14,7 @@ export type FeedPost = {
   isAnonymous: boolean;
   createdAt: Date;
   nickname: string | null; // always null for anonymous posts: the author never leaves the server
+  avatarKey: string | null; // same rule as nickname
   reactions: number;
   comments: number;
   reacted: boolean;
@@ -26,6 +27,7 @@ function feedSelect(viewerId: string | null) {
     id: posts.id, kind: posts.kind, title: posts.title, body: posts.body, topic: posts.topic,
     isAnonymous: posts.isAnonymous, createdAt: posts.createdAt,
     nickname: sql<string | null>`case when ${posts.isAnonymous} then null else ${users.nickname} end`,
+    avatarKey: sql<string | null>`case when ${posts.isAnonymous} then null else ${users.avatarKey} end`,
     reactions: sql<number>`(select count(*)::int from ${postReactions} r where r.post_id = ${posts.id})`,
     comments: sql<number>`(select count(*)::int from ${comments} c where c.post_id = ${posts.id} and c.status = 'visible')`,
     reacted: viewerId
@@ -72,6 +74,7 @@ export async function listComments(postId: string, viewerId: string | null) {
     .select({
       id: comments.id, body: comments.body, createdAt: comments.createdAt,
       nickname: sql<string | null>`case when ${posts.isAnonymous} and ${byAuthor} then null else ${users.nickname} end`,
+      avatarKey: sql<string | null>`case when ${posts.isAnonymous} and ${byAuthor} then null else ${users.avatarKey} end`,
       byAuthor,
       mine: viewerId ? sql<boolean>`${comments.authorId} = ${viewerId}` : sql<boolean>`false`,
     })

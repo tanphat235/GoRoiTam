@@ -4,6 +4,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
+const bytea = customType<{ data: Uint8Array }>({ dataType: () => "bytea" });
 const tz = (name: string) => timestamp(name, { withTimezone: true });
 
 /** Vietnamese accent folding inside Postgres. translate() is IMMUTABLE, so it can feed a generated column. */
@@ -22,6 +23,8 @@ export const users = pgTable("users", {
   plan: text("plan", { enum: ["free", "premium"] }).notNull().default("free"),
   timezone: text("timezone").notNull().default("Asia/Ho_Chi_Minh"),
   bannedAt: tz("banned_at"),
+  // Random key of the current avatar image (not the user id), so the image URL never reveals who someone is.
+  avatarKey: text("avatar_key"),
   createdAt: tz("created_at").notNull().defaultNow(),
 });
 
@@ -48,6 +51,14 @@ export const rateLimits = pgTable("rate_limits", {
   key: text("key").primaryKey(),
   windowStart: tz("window_start").notNull(),
   count: integer("count").notNull().default(0),
+});
+
+/** Avatar images, already resized and re-encoded server-side (WebP, metadata stripped). */
+export const avatars = pgTable("avatars", {
+  key: text("key").primaryKey(),
+  userId: uuid("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  data: bytea("data").notNull(),
+  createdAt: tz("created_at").notNull().defaultNow(),
 });
 
 // ---------- community ----------

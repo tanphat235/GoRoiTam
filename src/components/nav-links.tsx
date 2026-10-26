@@ -6,17 +6,17 @@ import { BookHeart, CalendarCheck2, Home, MessageCircleHeart, UserRound, Users }
 
 const SIDE = [
   { href: "/", label: "Trang chủ", icon: Home },
-  { href: "/hoi", label: "Hỏi AI", icon: MessageCircleHeart },
-  { href: "/cong-dong", label: "Cộng đồng", icon: Users },
-  { href: "/lich-tu-tap", label: "Lịch tu tập", icon: CalendarCheck2 },
-  { href: "/nhat-ky", label: "Nhật ký", icon: BookHeart },
+  { href: "/ask", label: "Hỏi AI", icon: MessageCircleHeart },
+  { href: "/community", label: "Cộng đồng", icon: Users },
+  { href: "/practice", label: "Lịch tu tập", icon: CalendarCheck2 },
+  { href: "/journal", label: "Nhật ký", icon: BookHeart },
 ];
 const BOTTOM = [
   { href: "/", label: "Trang chủ", icon: Home },
-  { href: "/hoi", label: "Hỏi AI", icon: MessageCircleHeart },
-  { href: "/cong-dong", label: "Cộng đồng", icon: Users },
-  { href: "/lich-tu-tap", label: "Lịch", icon: CalendarCheck2 },
-  { href: "/ho-so", label: "Tài khoản", icon: UserRound },
+  { href: "/ask", label: "Hỏi AI", icon: MessageCircleHeart },
+  { href: "/community", label: "Cộng đồng", icon: Users },
+  { href: "/practice", label: "Lịch", icon: CalendarCheck2 },
+  { href: "/profile", label: "Tài khoản", icon: UserRound },
 ];
 
 export function NavLinks({ variant }: { variant: "side" | "bottom" }) {

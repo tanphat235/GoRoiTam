@@ -85,7 +85,15 @@ export function Badge({ children, tone = "sage" }: { children: ReactNode; tone?:
 }
 
 /** Initial-letter avatar; anonymous posts get a neutral lotus avatar. */
-export function Avatar({ name, size = 36 }: { name: string | null; size?: number }) {
+export function Avatar({ name, size = 36, avatarKey }: { name: string | null; size?: number; avatarKey?: string | null }) {
+  // A photo only when there is a name: anonymous content passes name=null and never shows one.
+  if (avatarKey && name) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- 256px WebP served from our own route; no optimiser needed
+      <img src={`/api/avatar/${avatarKey}`} alt="" aria-hidden width={size} height={size} loading="lazy" decoding="async"
+        className="shrink-0 rounded-full bg-surface-2 object-cover" style={{ width: size, height: size }} />
+    );
+  }
   const hue = name ? [...name].reduce((h, c) => (h + c.charCodeAt(0)) % 4, 0) : -1;
   const bg = ["bg-primary", "bg-accent", "bg-[#6f8f74]", "bg-[#8a7a5c]"][hue] ?? "bg-sand";
   return (

@@ -3,7 +3,7 @@ import { safeNext, siteUrl } from "@/modules/auth/redirect";
 
 describe("safeNext", () => {
   it("allows same-site paths", () => {
-    expect(safeNext("/cong-dong?tab=an-danh")).toBe("/cong-dong?tab=an-danh");
+    expect(safeNext("/community?tab=anonymous")).toBe("/community?tab=anonymous");
   });
   it("blocks open redirects", () => {
     expect(safeNext("https://evil.com")).toBe("/");

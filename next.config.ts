@@ -17,7 +17,23 @@ const csp = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Native/WASM database drivers must not be bundled by webpack.
-  serverExternalPackages: ["@electric-sql/pglite", "postgres"],
+  serverExternalPackages: ["@electric-sql/pglite", "postgres", "sharp"],
+  // Avatar uploads (already downscaled in the browser; the server caps them at 2 MB).
+  experimental: { serverActions: { bodySizeLimit: "3mb" } },
+  // Old Vietnamese URLs (bookmarks, links in emails already sent) keep working.
+  async redirects() {
+    const moved: [string, string][] = [
+      ["/cong-dong/viet", "/community/new"], ["/cong-dong", "/community"], ["/ho-so/cai-dat", "/profile/settings"],
+      ["/ho-so", "/profile"], ["/hoi", "/ask"], ["/lich-tu-tap", "/practice"], ["/nhat-ky", "/journal"],
+      ["/dang-nhap", "/login"], ["/dang-ky", "/signup"], ["/kiem-tra-email", "/check-email"],
+      ["/quen-mat-khau", "/forgot-password"], ["/dat-lai-mat-khau", "/reset-password"], ["/chon-biet-danh", "/choose-nickname"],
+      ["/xac-nhan-email", "/verify-email"], ["/tim-kiem", "/search"], ["/quyen-rieng-tu", "/privacy"], ["/dieu-khoan", "/terms"],
+    ];
+    return moved.flatMap(([from, to]) => [
+      { source: from, destination: to, permanent: true },
+      { source: `${from}/:rest*`, destination: `${to}/:rest*`, permanent: true },
+    ]);
+  },
   async headers() {
     return [
       {

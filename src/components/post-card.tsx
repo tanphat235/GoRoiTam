@@ -10,14 +10,14 @@ export function PostCard({ post, canReact, delay = 0 }: { post: FeedPost; canRea
   return (
     <article className={`fade-up lift rounded-3xl border border-border bg-surface p-5 shadow-soft delay-${Math.min(delay, 5)}`}>
       <div className="flex items-center gap-3">
-        <Avatar name={name} size={38} />
+        <Avatar name={name} avatarKey={post.avatarKey} size={38} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{name ?? "Ẩn danh"}{post.mine && post.isAnonymous && <span className="ml-1 font-normal text-muted">(bạn)</span>}</p>
           <p className="text-xs text-muted"><time dateTime={new Date(post.createdAt).toISOString()}>{timeAgo(post.createdAt)}</time></p>
         </div>
         <Badge tone={post.kind === "question" ? "sand" : post.kind === "learn" ? "lotus" : "sage"}>{KINDS[post.kind].label}</Badge>
       </div>
-      <Link href={`/cong-dong/${post.id}`} className="group mt-3 block">
+      <Link href={`/community/${post.id}`} className="group mt-3 block">
         <h3 className="font-serif text-lg font-semibold leading-snug group-hover:text-primary">{post.title}</h3>
         <p className="mt-1.5 line-clamp-3 whitespace-pre-line text-sm text-muted">{post.body}</p>
       </Link>
@@ -32,7 +32,7 @@ export function PostCard({ post, canReact, delay = 0 }: { post: FeedPost; canRea
         ) : (
           <span className="flex items-center gap-1.5 px-3 py-1.5 text-muted"><Heart size={16} aria-hidden /> {post.reactions}</span>
         )}
-        <Link href={`/cong-dong/${post.id}#binh-luan`} className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-muted hover:bg-primary-soft">
+        <Link href={`/community/${post.id}#comments`} className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-muted hover:bg-primary-soft">
           <MessageCircle size={16} aria-hidden /> {post.comments}
         </Link>
         <span className="ml-auto"><Badge tone="sand">{TOPICS[post.topic as keyof typeof TOPICS] ?? "Khác"}</Badge></span>

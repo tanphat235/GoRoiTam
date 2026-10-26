@@ -22,11 +22,11 @@ export async function addFromTemplate(formData: FormData) {
   const user = await requireMember();
   const db = await getDb();
   const [t] = await db.select().from(schema.practiceTemplates).where(eq(schema.practiceTemplates.id, Id.parse(formData.get("templateId"))));
-  if (!t) fail("/lich-tu-tap", "Không tìm thấy lịch mẫu.");
-  if ((await countSchedules(user.id)) >= MAX_SCHEDULES) fail("/lich-tu-tap", `Tối đa ${MAX_SCHEDULES} lịch.`);
+  if (!t) fail("/practice", "Không tìm thấy lịch mẫu.");
+  if ((await countSchedules(user.id)) >= MAX_SCHEDULES) fail("/practice", `Tối đa ${MAX_SCHEDULES} lịch.`);
   await db.insert(schema.practiceSchedules).values({ userId: user.id, title: t!.name, items: t!.items });
-  revalidatePath("/lich-tu-tap");
-  redirect("/lich-tu-tap");
+  revalidatePath("/practice");
+  redirect("/practice");
 }
 
 export async function saveSchedule(formData: FormData) {
@@ -34,17 +34,17 @@ export async function saveSchedule(formData: FormData) {
   const id = formData.get("id") ? Id.parse(formData.get("id")) : null;
   const title = Title.safeParse(formData.get("title"));
   const items = parseItems(String(formData.get("items") ?? ""));
-  if (!title.success || items.length === 0) fail("/lich-tu-tap", "Cần tên lịch và ít nhất một dòng dạng “06:00 Thiền buổi sáng | 15”.");
+  if (!title.success || items.length === 0) fail("/practice", "Cần tên lịch và ít nhất một dòng dạng “06:00 Thiền buổi sáng | 15”.");
   const db = await getDb();
   const s = schema.practiceSchedules;
   if (id) {
     await db.update(s).set({ title: title.data!, items }).where(and(eq(s.id, id), eq(s.userId, user.id)));
   } else {
-    if ((await countSchedules(user.id)) >= MAX_SCHEDULES) fail("/lich-tu-tap", `Tối đa ${MAX_SCHEDULES} lịch.`);
+    if ((await countSchedules(user.id)) >= MAX_SCHEDULES) fail("/practice", `Tối đa ${MAX_SCHEDULES} lịch.`);
     await db.insert(s).values({ userId: user.id, title: title.data!, items });
   }
-  revalidatePath("/lich-tu-tap");
-  redirect("/lich-tu-tap");
+  revalidatePath("/practice");
+  redirect("/practice");
 }
 
 export async function deleteSchedule(formData: FormData) {
@@ -52,7 +52,7 @@ export async function deleteSchedule(formData: FormData) {
   const db = await getDb();
   const s = schema.practiceSchedules;
   await db.delete(s).where(and(eq(s.id, Id.parse(formData.get("id"))), eq(s.userId, user.id)));
-  revalidatePath("/lich-tu-tap");
+  revalidatePath("/practice");
 }
 
 /** Toggle an item for a day. Only today and past days can be marked. */
@@ -72,7 +72,7 @@ export async function toggleLog(formData: FormData) {
     .where(and(eq(l.userId, user.id), eq(l.scheduleId, scheduleId), eq(l.day, day), eq(l.itemKey, key), lte(l.day, today)))
     .returning({ id: l.id });
   if (removed.length === 0) await db.insert(l).values({ userId: user.id, scheduleId, day, itemKey: key }).onConflictDoNothing();
-  revalidatePath("/lich-tu-tap");
+  revalidatePath("/practice");
 }
 
 export async function addJournal(formData: FormData) {
@@ -80,11 +80,11 @@ export async function addJournal(formData: FormData) {
   const parsed = z
     .object({ mood: z.coerce.number().int().min(1).max(5), text: z.string().trim().min(1).max(3000) })
     .safeParse({ mood: formData.get("mood"), text: formData.get("text") });
-  if (!parsed.success) fail("/nhat-ky", "Hãy chọn tâm trạng và viết vài dòng.");
+  if (!parsed.success) fail("/journal", "Hãy chọn tâm trạng và viết vài dòng.");
   const db = await getDb();
   await db.insert(schema.journalEntries).values({ userId: user.id, ...parsed.data! });
-  revalidatePath("/nhat-ky");
-  redirect("/nhat-ky");
+  revalidatePath("/journal");
+  redirect("/journal");
 }
 
 export async function deleteJournal(formData: FormData) {
@@ -92,5 +92,5 @@ export async function deleteJournal(formData: FormData) {
   const db = await getDb();
   const j = schema.journalEntries;
   await db.delete(j).where(and(eq(j.id, Id.parse(formData.get("id"))), eq(j.userId, user.id)));
-  revalidatePath("/nhat-ky");
+  revalidatePath("/journal");
 }

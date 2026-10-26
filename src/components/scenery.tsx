@@ -7,7 +7,7 @@ export function Landscape({ className = "", lotus = true, idp = "ls" }: { classN
   const id = (n: string) => `${idp}-${n}`;
   const url = (n: string) => `url(#${id(n)})`;
   return (
-    <svg viewBox="0 0 800 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true" className={className}>
+    <svg data-landscape viewBox="0 0 800 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true" className={className}>
       <defs>
         <linearGradient id={id("sky")} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="var(--sky-top)" />
@@ -34,37 +34,43 @@ export function Landscape({ className = "", lotus = true, idp = "ls" }: { classN
       </defs>
 
       <rect width="800" height="420" fill={url("sky")} />
-      <rect width="800" height="420" fill={url("sun")} />
+      <rect data-depth="sun" width="800" height="420" fill={url("sun")} />
 
-      {/* far ridge fades into the haze instead of ending on a line */}
-      <path d="M0 230C60 200 80 160 130 165c40 5 60-45 120-50 50-3 70 60 130 45 50-12 70-32 120-20 60 15 80-30 140-22 60 8 90 47 160 32V330H0Z" fill={url("far")} opacity="0.9" />
-      <g className="mist-slow"><ellipse cx="400" cy="196" rx="520" ry="34" fill={url("haze")} /></g>
+      {/* Planes are grouped by depth (data-depth): the hero moves them at different rates on scroll. */}
+      <g data-depth="far">
+        {/* far ridge fades into the haze instead of ending on a line */}
+        <path d="M0 230C60 200 80 160 130 165c40 5 60-45 120-50 50-3 70 60 130 45 50-12 70-32 120-20 60 15 80-30 140-22 60 8 90 47 160 32V330H0Z" fill={url("far")} opacity="0.9" />
+        <g className="mist-slow"><ellipse cx="400" cy="196" rx="520" ry="34" fill={url("haze")} /></g>
+      </g>
 
-      <path d="M0 265c70-25 100-60 160-55s90-30 150-20 80 50 140 42 90-27 150-17 90-10 140-5c30 3 50 17 60 25V400H0Z" fill="var(--mount-mid)" opacity="0.8" />
-      <Pagoda x={640} y={128} />
-      <g className="mist"><ellipse cx="380" cy="276" rx="540" ry="38" fill={url("haze")} /></g>
+      <g data-depth="mid">
+        <path d="M0 265c70-25 100-60 160-55s90-30 150-20 80 50 140 42 90-27 150-17 90-10 140-5c30 3 50 17 60 25V400H0Z" fill="var(--mount-mid)" opacity="0.8" />
+        <Pagoda x={640} y={128} />
+        <g className="mist"><ellipse cx="380" cy="276" rx="540" ry="38" fill={url("haze")} /></g>
+      </g>
 
-      {/* starts below the lowest point of the hill crest, and the hill is opaque, so its top edge never shows */}
-      <rect y="310" width="800" height="110" fill={url("water")} />
-      {/* near hills: curved top and a wavy shoreline, softened by haze */}
-      <path d="M0 305c90-25 160-37 240-20s140-3 220-5 160-18 240-10c40 4 80 12 100 15v45c-100 8-200-4-300 2s-200-8-300-2c-80 5-140-2-200 4Z" fill="var(--mount-near)" />
-      <ellipse cx="400" cy="336" rx="520" ry="16" fill={url("haze")} opacity="0.8" />
-
-      <g stroke="var(--sage)" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.5">
-        <path className="ripple" d="M470 368q30-5 60 0" />
-        <path className="ripple" d="M640 352q25-4 50 0" style={{ animationDelay: "1.8s" }} />
-        <path className="ripple" d="M360 392q22-4 44 0" style={{ animationDelay: "3.2s" }} />
+      <g data-depth="near">
+        {/* starts below the lowest point of the hill crest, and the hill is opaque, so its top edge never shows */}
+        <rect y="310" width="800" height="140" fill={url("water")} />
+        {/* near hills: curved top and a wavy shoreline, softened by haze */}
+        <path d="M0 305c90-25 160-37 240-20s140-3 220-5 160-18 240-10c40 4 80 12 100 15v45c-100 8-200-4-300 2s-200-8-300-2c-80 5-140-2-200 4Z" fill="var(--mount-near)" />
+        <ellipse cx="400" cy="336" rx="520" ry="16" fill={url("haze")} opacity="0.8" />
+        <g stroke="var(--sage)" strokeWidth="1.4" strokeLinecap="round" fill="none" opacity="0.5">
+          <path className="ripple" d="M470 368q30-5 60 0" />
+          <path className="ripple" d="M640 352q25-4 50 0" style={{ animationDelay: "1.8s" }} />
+          <path className="ripple" d="M360 392q22-4 44 0" style={{ animationDelay: "3.2s" }} />
+        </g>
       </g>
 
       {lotus && (
-        <>
+        <g data-depth="front">
           <ellipse cx="150" cy="392" rx="58" ry="11" fill="var(--sage)" opacity="0.65" />
           <ellipse cx="300" cy="404" rx="40" ry="8" fill="var(--sage)" opacity="0.5" />
           <ellipse cx="560" cy="398" rx="48" ry="9" fill="var(--sage)" opacity="0.55" />
           <LotusFlower x={150} y={384} scale={1.15} />
           <LotusFlower x={560} y={392} scale={0.8} delay="1.2s" />
           <LotusFlower x={300} y={400} scale={0.55} delay="2.4s" />
-        </>
+        </g>
       )}
     </svg>
   );

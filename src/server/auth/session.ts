@@ -14,6 +14,7 @@ export type CurrentUser = {
   email: string;
   nickname: string | null;
   bio: string | null;
+  avatarKey: string | null;
   role: "user" | "moderator" | "admin";
   plan: "free" | "premium";
   timezone: string;
@@ -58,7 +59,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const u = schema.users;
   const [row] = await db
     .select({
-      id: u.id, email: u.email, nickname: u.nickname, bio: u.bio, role: u.role, plan: u.plan,
+      id: u.id, email: u.email, nickname: u.nickname, bio: u.bio, avatarKey: u.avatarKey, role: u.role, plan: u.plan,
       timezone: u.timezone, emailVerifiedAt: u.emailVerifiedAt, bannedAt: u.bannedAt, createdAt: u.createdAt,
     })
     .from(schema.sessions)
@@ -74,9 +75,9 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 /** Signed in, email verified and nickname chosen: the state required for every member feature. */
 export async function requireMember(next?: string) {
   const user = await getCurrentUser();
-  if (!user) redirect(`/dang-nhap${next ? `?next=${encodeURIComponent(next)}` : ""}`);
-  if (!user.emailVerified) redirect("/kiem-tra-email");
-  if (!user.nickname) redirect("/chon-biet-danh");
+  if (!user) redirect(`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`);
+  if (!user.emailVerified) redirect("/check-email");
+  if (!user.nickname) redirect("/choose-nickname");
   return user as CurrentUser & { nickname: string };
 }
 

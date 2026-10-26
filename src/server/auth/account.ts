@@ -33,8 +33,8 @@ export async function newSignupNonce() {
 
 export type VerifyResult =
   | { ok: false }
-  | { ok: true; next: "/chon-biet-danh" }
-  | { ok: true; next: `/dat-lai-mat-khau?token=${string}` };
+  | { ok: true; next: "/choose-nickname" }
+  | { ok: true; next: `/reset-password?token=${string}` };
 
 /**
  * Email verification. The password chosen at signup is applied ONLY when the link is opened in the
@@ -61,11 +61,11 @@ export async function verifyEmailToken(token: string): Promise<VerifyResult> {
 
   if (sameBrowser) {
     await createSession(user.id);
-    return { ok: true, next: "/chon-biet-danh" };
+    return { ok: true, next: "/choose-nickname" };
   }
   // Email ownership is now proven; let the person holding the mailbox choose the password.
   const reset = await issueToken(user.id, "reset");
-  return { ok: true, next: `/dat-lai-mat-khau?token=${reset}` };
+  return { ok: true, next: `/reset-password?token=${reset}` };
 }
 
 const RESERVED = ["admin", "administrator", "moderator", "quan tri", "quản trị", "kiểm duyệt", "ẩn danh", "an danh", "gỡ rối tâm", "go roi tam", "system", "hệ thống"];

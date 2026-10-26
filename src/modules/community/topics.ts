@@ -9,9 +9,9 @@ export const TOPICS = {
 } as const;
 
 export const KINDS = {
-  question: { label: "Câu hỏi", tab: "cau-hoi" },
-  share: { label: "Chia sẻ", tab: "chia-se" },
-  learn: { label: "Học hỏi", tab: "hoc-hoi" },
+  question: { label: "Câu hỏi", tab: "questions" },
+  share: { label: "Chia sẻ", tab: "shares" },
+  learn: { label: "Học hỏi", tab: "learning" },
 } as const;
 
 export type Topic = keyof typeof TOPICS;
